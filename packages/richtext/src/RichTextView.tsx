@@ -5,7 +5,7 @@
 /**
  * @file RichTextView.tsx
  * @input Uses React, Lexical (lexical + @lexical/react, composed through
- *   LexicalExtensionComposer), design tokens
+ *   LexicalExtensionComposer), shared content extensions, design tokens
  * @output Exports RichTextView component and RichTextViewProps
  * @position Read-only renderer for serialized Lexical editor state; experimental
  *   (richtext), exported from @astryxdesign/richtext
@@ -23,37 +23,22 @@ import type {BaseProps} from '@astryxdesign/core';
 
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
-import {RichTextPlugin} from '@lexical/react/LexicalRichTextPlugin';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import {LexicalErrorBoundary} from '@lexical/react/LexicalErrorBoundary';
-import {ListNode, ListItemNode} from '@lexical/list';
-import {HeadingNode, QuoteNode} from '@lexical/rich-text';
-import {LinkNode, AutoLinkNode} from '@lexical/link';
-import {CodeNode, CodeHighlightNode} from '@lexical/code';
 import type {
   AnyLexicalExtension,
+  AnyLexicalExtensionArgument,
   Klass,
   LexicalNode,
   EditorThemeClasses,
 } from 'lexical';
 import {defineExtension} from 'lexical';
+import {RichTextContentExtension} from './RichTextContentExtension';
 
 const styles = stylex.create({
   root: {
     width: '100%',
   },
 });
-
-const DEFAULT_NODES: ReadonlyArray<Klass<LexicalNode>> = [
-  HeadingNode,
-  QuoteNode,
-  ListNode,
-  ListItemNode,
-  LinkNode,
-  AutoLinkNode,
-  CodeNode,
-  CodeHighlightNode,
-];
 
 export interface RichTextViewProps extends BaseProps {
   /**
@@ -66,6 +51,8 @@ export interface RichTextViewProps extends BaseProps {
    * the nodes used to author `value` so custom node types deserialize.
    */
   nodes?: ReadonlyArray<Klass<LexicalNode>>;
+  /** Content extensions matching those used by the editor and serializers. Read once on mount. */
+  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>;
   /**
    * Additional read-only plugins to render inside the composer (e.g. hover
    * cards, decorators).
@@ -142,6 +129,7 @@ function SyncValuePlugin({value}: {value: string}): null {
 export function RichTextView({
   value,
   nodes,
+  extensions,
   plugins,
   namespace = 'astryx-view',
   onParseError,
@@ -212,7 +200,8 @@ export function RichTextView({
       namespace,
       theme: themeRef.current,
       editable: false,
-      nodes: nodes ? [...DEFAULT_NODES, ...nodes] : [...DEFAULT_NODES],
+      dependencies: [RichTextContentExtension, ...(extensions ?? [])],
+      nodes: nodes ? [...nodes] : [],
       $initialEditorState: value,
       // A read-only view renders persisted content; a bad node/schema should not
       // crash the host. Surface it via onParseError + fallback instead of re-throwing.
@@ -230,11 +219,7 @@ export function RichTextView({
         extension={extensionRef.current}
         contentEditable={null}>
         <SyncValuePlugin value={value} />
-        <RichTextPlugin
-          contentEditable={<ContentEditable />}
-          placeholder={null}
-          ErrorBoundary={LexicalErrorBoundary}
-        />
+        <ContentEditable />
         {plugins}
       </LexicalExtensionComposer>
     </div>

@@ -10,17 +10,18 @@ import {RichTextEditor, RichTextView} from '@astryxdesign/richtext';
 <RichTextView label="Notes" value={serializedState} />;
 ```
 
-The editor is deliberately minimal and extensible: pass `nodes` and `plugins` to
-layer richer behaviour (toolbars, mentions, hover cards) on top without forking.
-`RichTextEditorToolbar` is a composable formatting toolbar that drops into the
-editor's `plugins` slot, and `markdownToEditorStateJSON` /
-`editorStateJSONToMarkdown` convert Markdown to/from serialized editor state
-headlessly (no mounted editor required). It consumes `@astryxdesign/core` theme
-tokens directly (StyleX build mirrors `@astryxdesign/lab` / `@astryxdesign/charts`).
+The editor is built from Lexical extensions for rich text, lists, links, history,
+Tab indentation, and CommonMark/GFM Markdown through `@lexical/mdast`.
+`RichTextEditorToolbar` goes in the `toolbar` slot; additional React UI can use
+`plugins`. Configure custom nodes, behavior, and Markdown rules with `extensions`.
+Pass the same content extensions to `RichTextView`, `markdownToEditorStateJSON`,
+and `editorStateJSONToMarkdown` so persisted content round-trips. The serializers
+build and dispose an editor without mounting a DOM root; their extensions must
+work without a DOM or React tree.
 
 `lexical` and the `@lexical/*` packages are **optional** peer dependencies —
-install them alongside richtext to use the editor. See the RFC:
-[facebook/astryx#3899](https://github.com/facebook/astryx/issues/3899).
+install the matching 0.50.x packages below to use richtext. It consumes
+`@astryxdesign/core` theme tokens directly.
 
 It ships to npm **only under the `@canary` dist-tag** — there is never a stable
 (`latest`) release yet.
@@ -56,12 +57,52 @@ you must request that tag explicitly. There is no `latest` version to install.
 ```bash
 npm install @astryxdesign/richtext@canary @astryxdesign/core@canary
 # plus the optional lexical peers you use:
-npm install lexical @lexical/react @lexical/markdown @lexical/rich-text
+npm install lexical@0.50.0 @lexical/react@0.50.0 @lexical/extension@0.50.0 \
+  @lexical/mdast@0.50.0 @lexical/rich-text@0.50.0 @lexical/list@0.50.0 \
+  @lexical/link@0.50.0 @lexical/code-core@0.50.0 @lexical/html@0.50.0 \
+  @lexical/selection@0.50.0 @lexical/utils@0.50.0 @lexical/history@0.50.0 \
+  @lexical/clipboard@0.50.0 @lexical/table@0.50.0
 ```
 
 > Canary builds track the latest commit on `main` (`0.x.y-canary.<sha>`). They
 > can break between any two versions — pin an exact version if you need
 > stability.
+
+### Migrating to extensions and mdast
+
+This canary changes the Markdown customization API:
+
+- Replace `transformers` / `Transformer` with mdast extensions in `extensions`.
+  `MdastImportExtension` accepts import/export rules and parser/serializer
+  extensions; import, export, and typing shortcuts share that configuration.
+- Replace `plugins={<RichTextEditorAutoLinkPlugin />}` with
+  `extensions={[RichTextEditorAutoLinkExtension]}`. For custom matching or link
+  notifications, use `configExtension(AutoLinkExtension, {matchers, changeHandlers})`
+  from `@lexical/link` and `lexical`.
+- The extension graph and `nodes` are read once on mount. Runtime props such as
+  editability, `onChange`, and `hasMarkdownShortcuts` update the existing editor.
+  Use extension output signals for runtime configuration or change the React
+  `key` to replace the graph.
+
+`defaultValue` still accepts serialized Lexical JSON. Markdown now follows
+CommonMark and GFM, including reference links, task lists, tables, thematic
+breaks, and soft line breaks. Serializer output can differ from the old
+transformer output; imported syntax such as bullet/fence styles is preserved
+where supported by mdast.
+
+```tsx
+import {
+  RichTextEditor,
+  RichTextEditorAutoLinkExtension,
+  RichTextEditorToolbar,
+} from '@astryxdesign/richtext';
+
+<RichTextEditor
+  label="Notes"
+  extensions={[RichTextEditorAutoLinkExtension]}
+  toolbar={<RichTextEditorToolbar />}
+/>;
+```
 
 ## Why no stable release?
 

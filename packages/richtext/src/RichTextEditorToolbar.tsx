@@ -57,8 +57,8 @@ import {
   INSERT_ORDERED_LIST_COMMAND,
   INSERT_UNORDERED_LIST_COMMAND,
 } from '@lexical/list';
-import {$getNearestNodeOfType, mergeRegister} from '@lexical/utils';
 import {TOGGLE_LINK_COMMAND, $isLinkNode, $createLinkNode} from '@lexical/link';
+import {$getNearestNodeOfType} from '@lexical/utils';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Selector, type SelectorOptionType} from '@astryxdesign/core/Selector';
@@ -76,6 +76,7 @@ import {
 } from '@astryxdesign/core/Layout';
 import {getExtendedIcon} from '@astryxdesign/core/Icon';
 import {
+  mergeRegister,
   FORMAT_TEXT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,

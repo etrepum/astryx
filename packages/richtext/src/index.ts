@@ -4,7 +4,7 @@
 
 /**
  * @file index.ts
- * @input Imports RichTextEditor and RichTextView components and their types
+ * @input Imports editor/view components, auto-link extension, and serialization helpers
  * @output Public API surface for @astryxdesign/richtext
  * @position Package entry point (barrel) for @astryxdesign/richtext — the
  *   Lexical-based rich text editor and viewer, promoted out of
@@ -21,7 +21,6 @@ export type {
   RichTextEditorStatus,
   RichTextEditorStatusType,
   RichTextEditorSize,
-  Transformer,
 } from './RichTextEditor';
 
 export {RichTextView} from './RichTextView';
@@ -42,11 +41,10 @@ export {
 export type {RichTextEditorToolbarProps} from './RichTextEditorToolbar';
 
 export {
-  RichTextEditorAutoLinkPlugin,
+  RichTextEditorAutoLinkExtension,
   DEFAULT_LINK_MATCHERS,
   NEW_TAB_LINK_ATTRIBUTES,
-} from './RichTextEditorAutoLinkPlugin';
-export type {RichTextEditorAutoLinkPluginProps} from './RichTextEditorAutoLinkPlugin';
+} from './RichTextEditorAutoLinkExtension';
 
 export {
   sanitizeUrl,

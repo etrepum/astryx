@@ -8,11 +8,12 @@ import {
   markdownToEditorStateJSON,
   editorStateJSONToMarkdown,
   RichTextEditorToolbar,
-  RichTextEditorAutoLinkPlugin,
+  RichTextEditorAutoLinkExtension,
   type RichTextEditorRef,
 } from '@astryxdesign/richtext';
 import type {EditorState} from 'lexical';
-import {BOLD_STAR, ITALIC_STAR, UNORDERED_LIST} from '@lexical/markdown';
+import {MdastImportExtension} from '@lexical/mdast';
+import {configExtension, defineExtension} from 'lexical';
 import {$getRoot} from 'lexical';
 
 const meta: Meta<typeof RichTextEditor> = {
@@ -141,7 +142,7 @@ export const WithAutoLink: Story = {
     placeholder: 'Type a URL like https://astryx.dev and it auto-links…',
     toolbar: <RichTextEditorToolbar />,
     // Auto-linkify typed/pasted URLs + emails (open in a new tab).
-    plugins: <RichTextEditorAutoLinkPlugin />,
+    extensions: [RichTextEditorAutoLinkExtension],
   },
 };
 
@@ -171,13 +172,22 @@ export const WithCharacterLimit: Story = {
   },
 };
 
-export const CustomTransformers: Story = {
+const AsteriskBulletsExtension = defineExtension({
+  name: 'storybook/AsteriskBullets',
+  dependencies: [
+    configExtension(MdastImportExtension, {
+      toMarkdownExtensions: [{bullet: '*'}],
+    }),
+  ],
+});
+
+export const CustomExtensions: Story = {
   args: {
     label: 'Comment',
     description:
-      'Restricted markdown: only `*bold*`, `_italic_` and `- ` unordered lists (no headings, quotes or code).',
-    placeholder: 'Try typing "# " — it will not become a heading…',
-    transformers: [BOLD_STAR, ITALIC_STAR, UNORDERED_LIST],
+      'Content behavior and Markdown serialization are configured through Lexical extensions.',
+    placeholder: 'Try headings, lists, inline formatting, or code…',
+    extensions: [AsteriskBulletsExtension, RichTextEditorAutoLinkExtension],
   },
 };
 

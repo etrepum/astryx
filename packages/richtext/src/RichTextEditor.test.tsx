@@ -5,7 +5,7 @@
  * @input Uses vitest, @testing-library/react, RichTextEditor + RichTextView
  * @output Unit tests for the opt-in Lexical editor components, including
  *   accessible label wiring, shared input visuals/status variants,
- *   placeholder semantics, canonical link-dialog layout, and top-toolbar
+ *   placeholder semantics, extension lifecycle, mdast serialization, link-dialog layout, and top-toolbar
  *   ordering and horizontal scrolling
  * @position Testing; validates RichTextEditor.tsx and RichTextView.tsx
  *
@@ -13,9 +13,9 @@
  */
 
 import {describe, it, expect, vi, beforeAll, afterAll} from 'vitest';
-import {render, screen, waitFor, fireEvent} from '@testing-library/react';
+import {render, screen, waitFor, fireEvent, act} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import {createRef, useEffect} from 'react';
+import {createRef, useEffect, StrictMode} from 'react';
 import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
 import type {EditorState, LexicalEditor} from 'lexical';
 import {
@@ -25,12 +25,20 @@ import {
 } from '@lexical/list';
 import {
   $getRoot,
+  $getSelection,
+  $isRangeSelection,
+  configExtension,
+  defineExtension,
+  HISTORY_PUSH_TAG,
+  HISTORY_MERGE_TAG,
+  UNDO_COMMAND,
+  REDO_COMMAND,
   $createParagraphNode,
   $createTextNode,
   $isElementNode,
 } from 'lexical';
 import {HeadingNode} from '@lexical/rich-text';
-import {TRANSFORMERS, $convertFromMarkdownString} from '@lexical/markdown';
+import {$convertFromMarkdownString, MdastImportExtension} from '@lexical/mdast';
 import {RichTextEditor, type RichTextEditorRef} from './RichTextEditor';
 import {RichTextView} from './RichTextView';
 import {
@@ -40,11 +48,50 @@ import {
 import {RichTextEditorToolbar} from './RichTextEditorToolbar';
 import {registerIcons, resetIcons} from '@astryxdesign/core/Icon';
 import {
-  RichTextEditorAutoLinkPlugin,
+  RichTextEditorAutoLinkExtension,
   DEFAULT_LINK_MATCHERS,
   NEW_TAB_LINK_ATTRIBUTES,
-} from './RichTextEditorAutoLinkPlugin';
+} from './RichTextEditorAutoLinkExtension';
 import {sanitizeUrl, validateUrl} from './linkUtils';
+
+// A consumer override must reach both mounted editors and DOM-free helpers.
+const PlainHeadingExtension = defineExtension({
+  name: 'test/PlainHeading',
+  dependencies: [
+    configExtension(MdastImportExtension, {
+      importRules: [
+        {
+          type: 'heading',
+          $import: (node, context) =>
+            $createParagraphNode().append(...context.importChildren(node)),
+        },
+      ],
+      exportRules: [
+        {
+          type: 'heading',
+          $export: (node, context) => ({
+            type: 'paragraph',
+            children: context.exportInline(node),
+          }),
+        },
+      ],
+    }),
+  ],
+});
+
+function typeText(editor: LexicalEditor, text: string) {
+  for (const char of text) {
+    editor.update(
+      () => {
+        const selection = $getSelection();
+        if ($isRangeSelection(selection)) {
+          selection.insertText(char);
+        }
+      },
+      {discrete: true},
+    );
+  }
+}
 
 // Closed popover-backed tooltips are intentionally hidden from the default
 // accessibility tree until their trigger opens them.
@@ -484,68 +531,175 @@ describe('RichTextEditor', () => {
     expect(screen.getByTestId('custom-plugin')).toBeInTheDocument();
   });
 
-  it('accepts a custom transformers array without throwing', () => {
-    // Empty transformer set is a valid custom configuration (disables all
-    // markdown shortcuts while keeping the plugin mounted).
-    render(<RichTextEditor label="Notes" transformers={[]} />);
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-  });
-
-  it('renders when markdown shortcuts are disabled', () => {
-    render(<RichTextEditor label="Notes" hasMarkdownShortcuts={false} />);
-    expect(screen.getByRole('textbox')).toBeInTheDocument();
-  });
-
-  it('applies the default transformers to convert markdown to a heading', async () => {
-    // jsdom can't dispatch the keystrokes that trigger registerMarkdownShortcuts
-    // live, so we drive $convertFromMarkdownString with the same TRANSFORMERS
-    // the component registers by default. This proves the default transformer
-    // set actually produces the expected node structure (a heading), rather
-    // than only asserting the editor mounts.
-    let editorRef: LexicalEditor | undefined;
-    render(
-      <RichTextEditor
-        label="Notes"
-        plugins={<CaptureEditor onReady={e => (editorRef = e)} />}
-      />,
-    );
-    await waitFor(() => expect(editorRef).toBeDefined());
-    editorRef!.update(() => {
-      $convertFromMarkdownString('# Title', TRANSFORMERS);
+  it('uses mdast for live heading shortcuts', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    render(<RichTextEditor ref={ref} label="Notes" />);
+    await act(async () => {
+      ref.current!.focus();
+      typeText(ref.current!.getEditor(), '# ');
     });
-    await waitFor(() => {
-      editorRef!.getEditorState().read(() => {
-        const first = $getRoot().getFirstChild();
-        expect(first?.getType()).toBe('heading');
-        expect(first?.getTextContent()).toBe('Title');
+    expect(screen.getByRole('textbox').querySelector('h1')).not.toBeNull();
+  });
+
+  it('toggles shortcuts without recreating the editor or disabling Markdown import', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(
+      <RichTextEditor ref={ref} label="Notes" hasMarkdownShortcuts={false} />,
+    );
+    const editor = ref.current!.getEditor();
+    await act(async () => {
+      ref.current!.focus();
+      typeText(editor, '# ');
+    });
+    expect(screen.getByRole('textbox').querySelector('h1')).toBeNull();
+    expect(screen.getByRole('textbox')).toHaveTextContent('#');
+    rerender(<RichTextEditor ref={ref} label="Notes" hasMarkdownShortcuts />);
+    expect(ref.current!.getEditor()).toBe(editor);
+    await act(async () => {
+      ref.current!.clear();
+      editor.read(() => {});
+      typeText(editor, '# ');
+    });
+    expect(screen.getByRole('textbox').querySelector('h1')).not.toBeNull();
+    rerender(
+      <RichTextEditor ref={ref} label="Notes" hasMarkdownShortcuts={false} />,
+    );
+    await act(async () => {
+      editor.update(() => $convertFromMarkdownString('# Imported'), {
+        discrete: true,
       });
     });
+    expect(ref.current!.getMarkdown()).toBe('# Imported');
   });
 
-  it('leaves markdown untransformed when given an empty transformers array', async () => {
-    // With no transformers, the same markdown text stays a plain paragraph —
-    // demonstrating the transformers prop is the effective source of truth for
-    // markdown behaviour, not a fixed internal default.
-    let editorRef: LexicalEditor | undefined;
+  it('uses custom extension rules for Markdown import', async () => {
+    const ref = createRef<RichTextEditorRef>();
     render(
       <RichTextEditor
+        ref={ref}
         label="Notes"
-        transformers={[]}
-        plugins={<CaptureEditor onReady={e => (editorRef = e)} />}
+        extensions={[PlainHeadingExtension]}
       />,
     );
-    await waitFor(() => expect(editorRef).toBeDefined());
-    editorRef!.update(() => {
-      // Empty transformer set: markdown syntax is preserved verbatim.
-      $convertFromMarkdownString('# Title', []);
+    await act(async () => {
+      ref
+        .current!.getEditor()
+        .update(() => $convertFromMarkdownString('# Title'), {discrete: true});
     });
-    await waitFor(() => {
-      editorRef!.getEditorState().read(() => {
-        const first = $getRoot().getFirstChild();
-        expect(first?.getType()).toBe('paragraph');
-        expect(first?.getTextContent()).toBe('# Title');
+    expect(screen.getByRole('textbox').querySelector('h1')).toBeNull();
+    expect(screen.getByRole('textbox')).toHaveTextContent('Title');
+  });
+
+  it('preserves content, history, and editor identity when inline extension arrays rerender', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(
+      <RichTextEditor ref={ref} label="Notes" extensions={[]} />,
+    );
+    const editor = ref.current!.getEditor();
+    await act(async () => {
+      editor.update(() => $convertFromMarkdownString('First'), {
+        discrete: true,
+        tag: HISTORY_PUSH_TAG,
+      });
+      editor.update(() => $convertFromMarkdownString('First second'), {
+        discrete: true,
+        tag: HISTORY_PUSH_TAG,
       });
     });
+    rerender(<RichTextEditor ref={ref} label="Renamed" extensions={[]} />);
+    expect(ref.current!.getEditor()).toBe(editor);
+    expect(ref.current!.getMarkdown()).toBe('First second');
+    await act(async () => {
+      editor.dispatchCommand(UNDO_COMMAND, undefined);
+    });
+    expect(ref.current!.getMarkdown()).toBe('First');
+    await act(async () => {
+      editor.dispatchCommand(REDO_COMMAND, undefined);
+    });
+    expect(ref.current!.getMarkdown()).toBe('First second');
+  });
+
+  it('updates editability and imperative actions without remounting', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(
+      <RichTextEditor ref={ref} label="Notes" defaultValue={HELLO_STATE} />,
+    );
+    const editor = ref.current!.getEditor();
+    for (const mode of [{isReadOnly: true}, {isDisabled: true}]) {
+      rerender(<RichTextEditor ref={ref} label="Notes" {...mode} />);
+      expect(editor.isEditable()).toBe(false);
+      expect(screen.getByRole('textbox')).toHaveAttribute(
+        'contenteditable',
+        'false',
+      );
+      await act(async () => {
+        ref.current!.clear();
+      });
+      expect(ref.current!.getMarkdown()).toBe('Hello world');
+    }
+    rerender(<RichTextEditor ref={ref} label="Notes" />);
+    expect(ref.current!.getEditor()).toBe(editor);
+    expect(editor.isEditable()).toBe(true);
+    await act(async () => {
+      ref.current!.clear();
+    });
+    expect(ref.current!.getMarkdown()).toBe('');
+  });
+
+  it('uses the current onChange once in StrictMode and ignores selection/history-merge updates', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const first = vi.fn();
+    const second = vi.fn();
+    const {rerender} = render(
+      <StrictMode>
+        <RichTextEditor ref={ref} label="Notes" onChange={first} />
+      </StrictMode>,
+    );
+    const editor = ref.current!.getEditor();
+    expect(first).not.toHaveBeenCalled();
+    await act(async () => {
+      editor.update(() => $convertFromMarkdownString('First'), {
+        discrete: true,
+      });
+    });
+    expect(first).toHaveBeenCalledTimes(1);
+    rerender(
+      <StrictMode>
+        <RichTextEditor ref={ref} label="Notes" onChange={second} />
+      </StrictMode>,
+    );
+    await act(async () => {
+      editor.update(() => $convertFromMarkdownString('Second'), {
+        discrete: true,
+      });
+    });
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(second).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      editor.update(() => $getRoot().selectEnd(), {discrete: true});
+      editor.update(() => $convertFromMarkdownString('Merged'), {
+        discrete: true,
+        tag: HISTORY_MERGE_TAG,
+      });
+    });
+    expect(second).toHaveBeenCalledTimes(1);
+  });
+
+  it('counts plain text consistently when the counter is enabled after mount', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        defaultValue={markdownToEditorStateJSON('one\n\ntwo')}
+      />,
+    );
+    rerender(<RichTextEditor ref={ref} label="Notes" maxLength={20} />);
+    expect(await screen.findByText('8/20')).toBeInTheDocument();
+    await act(async () => {
+      ref.current!.clear();
+    });
+    expect(await screen.findByText('0/20')).toBeInTheDocument();
   });
 
   it('exposes an imperative ref handle after mount', () => {
@@ -599,7 +753,7 @@ describe('RichTextEditor', () => {
     expect(ref.current?.getMarkdown()).toBe('Hello world');
   });
 
-  it('ref.getMarkdown() serializes a heading with the default transformers', async () => {
+  it('ref.getMarkdown() serializes a heading with mdast', async () => {
     const ref = createRef<RichTextEditorRef>();
     let editorRef: LexicalEditor | undefined;
     render(
@@ -611,32 +765,22 @@ describe('RichTextEditor', () => {
     );
     await waitFor(() => expect(editorRef).toBeDefined());
     editorRef!.update(() => {
-      $convertFromMarkdownString('# Title', TRANSFORMERS);
+      $convertFromMarkdownString('# Title');
     });
     await waitFor(() => expect(ref.current?.getMarkdown()).toBe('# Title'));
   });
 
-  it('ref.getMarkdown() honors a custom transformers prop', async () => {
-    // With an empty transformers set, a heading node cannot be represented in
-    // markdown, so its text is emitted as a plain paragraph (no "# "). This
-    // proves getMarkdown() uses the same transformers the editor is
-    // configured with, not a hardcoded default.
+  it('ref.getMarkdown() honors custom extension export rules', () => {
     const ref = createRef<RichTextEditorRef>();
-    let editorRef: LexicalEditor | undefined;
     render(
       <RichTextEditor
         ref={ref}
         label="Notes"
-        transformers={[]}
-        plugins={<CaptureEditor onReady={e => (editorRef = e)} />}
+        defaultValue={markdownToEditorStateJSON('# Title')}
+        extensions={[PlainHeadingExtension]}
       />,
     );
-    await waitFor(() => expect(editorRef).toBeDefined());
-    // Seed a heading node directly (bypassing shortcuts) using the full set.
-    editorRef!.update(() => {
-      $convertFromMarkdownString('# Title', TRANSFORMERS);
-    });
-    await waitFor(() => expect(ref.current?.getMarkdown()).toBe('Title'));
+    expect(ref.current!.getMarkdown()).toBe('Title');
   });
 
   it('ref.getHTML() serializes content to an HTML string', () => {
@@ -909,6 +1053,19 @@ describe('RichTextEditor Tab keyboard trap escape (WCAG 2.1.2)', () => {
 });
 
 describe('RichTextView', () => {
+  it('renders mdast tables, task lists, and thematic breaks with the shared schema', async () => {
+    const value = markdownToEditorStateJSON(
+      '| Name | Value |\n| --- | --- |\n| a | b |\n\n- [x] done\n\n---',
+    );
+    const {container} = render(<RichTextView value={value} />);
+    await waitFor(() =>
+      expect(container.querySelector('table')).not.toBeNull(),
+    );
+    expect(container.querySelector('hr')).not.toBeNull();
+    expect(container.querySelector('[aria-checked="true"]')).not.toBeNull();
+    expect(container).toHaveTextContent('done');
+  });
+
   it('renders serialized content read-only', async () => {
     render(<RichTextView value={HELLO_STATE} />);
     await waitFor(() =>
@@ -1075,13 +1232,30 @@ describe('markdown serializers', () => {
     expect(editorStateJSONToMarkdown(json)).toBe(md);
   });
 
-  it('honors a custom (empty) transformers set — no heading syntax', () => {
-    // With no transformers, "# Title" is not recognized as a heading; it stays
-    // a plain paragraph, so serializing back yields the literal text.
-    const json = markdownToEditorStateJSON('# Title', {transformers: []});
-    const parsed = JSON.parse(json);
-    expect(parsed.root.children[0].type).toBe('paragraph');
-    expect(parsed.root.children[0].children[0].text).toBe('# Title');
+  it('uses the same extension rules for standalone import and export', () => {
+    const options = {extensions: [PlainHeadingExtension]};
+    const json = markdownToEditorStateJSON('# Title', options);
+    expect(JSON.parse(json).root.children[0].type).toBe('paragraph');
+    expect(
+      editorStateJSONToMarkdown(markdownToEditorStateJSON('# Title'), options),
+    ).toBe('Title');
+  });
+
+  it.each([
+    'Title\n=====',
+    '[reference][id]\n\n[id]: https://example.com "Title"',
+    '- [x] done\n- [ ] todo',
+    '| Name | Value |\n| --- | --- |\n| x | **y** |',
+    '---',
+    '~~~js\nconst n = 1;\n~~~',
+    'one\ntwo\n\nthree',
+  ])('round-trips CommonMark/GFM content through JSON: %s', markdown => {
+    const json = markdownToEditorStateJSON(markdown);
+    const exported = editorStateJSONToMarkdown(json);
+    expect(editorStateJSONToMarkdown(markdownToEditorStateJSON(exported))).toBe(
+      exported,
+    );
+    expect(exported).not.toBe('');
   });
 
   it('produces JSON consumable as RichTextEditor defaultValue', async () => {
@@ -1500,12 +1674,12 @@ describe('RichTextEditorToolbar — links', () => {
   });
 });
 
-describe('RichTextEditorAutoLinkPlugin', () => {
+describe('RichTextEditorAutoLinkExtension', () => {
   it('renders without crashing inside the editor', () => {
     render(
       <RichTextEditor
         label="Notes"
-        plugins={<RichTextEditorAutoLinkPlugin />}
+        extensions={[RichTextEditorAutoLinkExtension]}
       />,
     );
     expect(screen.getByRole('textbox')).toBeInTheDocument();
@@ -1529,12 +1703,8 @@ describe('RichTextEditorAutoLinkPlugin', () => {
     render(
       <RichTextEditor
         label="Notes"
-        plugins={
-          <>
-            <RichTextEditorAutoLinkPlugin />
-            <CaptureEditor onReady={e => (editor = e)} />
-          </>
-        }
+        extensions={[RichTextEditorAutoLinkExtension]}
+        plugins={<CaptureEditor onReady={e => (editor = e)} />}
       />,
     );
     await waitFor(() => expect(editor).toBeDefined());

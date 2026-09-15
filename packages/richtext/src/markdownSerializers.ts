@@ -2,9 +2,9 @@
 
 /**
  * @file markdownSerializers.ts
- * @input Uses @lexical/headless (createHeadlessEditor), @lexical/markdown
+ * @input Uses @lexical/extension (buildEditorFromExtensions), @lexical/mdast
  *   ($convertFromMarkdownString / $convertToMarkdownString), and the shared
- *   DEFAULT_NODES set.
+ *   RichTextContentExtension.
  * @output Standalone Markdown <-> serialized EditorState helpers:
  *   markdownToEditorStateJSON, editorStateJSONToMarkdown.
  * @position Re-exported from RichTextEditor/index.ts and the @astryxdesign/richtext
@@ -16,30 +16,33 @@
  * - /packages/richtext/src/RichTextEditor.doc.mjs (usage notes)
  * - /packages/richtext/src/RichTextEditor.test.tsx (tests)
  *
- * NOTE: `@lexical/headless`, `@lexical/markdown`, and `lexical` are OPTIONAL
+ * NOTE: `@lexical/extension`, `@lexical/mdast`, and `lexical` are OPTIONAL
  * peer dependencies (this is a canary lab module). Install them to use these
- * helpers. `@lexical/headless` runs Lexical without a DOM, so these work in
- * Node / SSR contexts.
+ * helpers. The extension builder works without a mounted DOM root, including
+ * in Node / SSR contexts.
  */
 
-import {createHeadlessEditor} from '@lexical/headless';
+import {buildEditorFromExtensions} from '@lexical/extension';
 import {
-  TRANSFORMERS,
   $convertFromMarkdownString,
   $convertToMarkdownString,
-  type Transformer,
-} from '@lexical/markdown';
-import {DEFAULT_NODES} from './editorNodes';
-import type {Klass, LexicalNode} from 'lexical';
+} from '@lexical/mdast';
+import {RichTextContentExtension} from './RichTextContentExtension';
+import {
+  defineExtension,
+  type AnyLexicalExtensionArgument,
+  type Klass,
+  type LexicalNode,
+} from 'lexical';
 
 /** Options shared by the Markdown serializer helpers. */
 export interface MarkdownSerializerOptions {
   /**
-   * Markdown transformers to use. Defaults to the standard `@lexical/markdown`
-   * `TRANSFORMERS`. Pass the same array you give `RichTextEditor`'s
-   * `transformers` prop so content round-trips consistently.
+   * Additional content extensions. Pass the same extensions as the editor and
+   * view so custom nodes and mdast import/export rules round-trip consistently.
+   * Extensions used here must work without a mounted DOM or React tree.
    */
-  transformers?: ReadonlyArray<Transformer>;
+  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>;
   /**
    * Extra Lexical nodes to register beyond the default OSS set, mirroring the
    * editor's `nodes` prop. Required for custom node types to serialize.
@@ -47,14 +50,21 @@ export interface MarkdownSerializerOptions {
   nodes?: ReadonlyArray<Klass<LexicalNode>>;
 }
 
-function createSerializerEditor(nodes?: ReadonlyArray<Klass<LexicalNode>>) {
-  return createHeadlessEditor({
-    namespace: 'astryx-editor-serializer',
-    nodes: nodes ? [...DEFAULT_NODES, ...nodes] : [...DEFAULT_NODES],
-    onError(error: Error) {
-      throw error;
-    },
-  });
+function createSerializerEditor({
+  nodes,
+  extensions,
+}: MarkdownSerializerOptions) {
+  return buildEditorFromExtensions(
+    defineExtension({
+      name: '@astryxdesign/richtext/Serializer',
+      namespace: 'astryx-editor-serializer',
+      dependencies: [RichTextContentExtension, ...(extensions ?? [])],
+      nodes: nodes ? [...nodes] : [],
+      onError(error: Error) {
+        throw error;
+      },
+    }),
+  );
 }
 
 /**
@@ -72,15 +82,18 @@ export function markdownToEditorStateJSON(
   markdown: string,
   options: MarkdownSerializerOptions = {},
 ): string {
-  const {transformers = TRANSFORMERS, nodes} = options;
-  const editor = createSerializerEditor(nodes);
-  editor.update(
-    () => {
-      $convertFromMarkdownString(markdown, [...transformers]);
-    },
-    {discrete: true},
-  );
-  return JSON.stringify(editor.getEditorState().toJSON());
+  const editor = createSerializerEditor(options);
+  try {
+    editor.update(
+      () => {
+        $convertFromMarkdownString(markdown);
+      },
+      {discrete: true},
+    );
+    return JSON.stringify(editor.getEditorState().toJSON());
+  } finally {
+    editor.dispose();
+  }
 }
 
 /**
@@ -97,8 +110,11 @@ export function editorStateJSONToMarkdown(
   editorStateJSON: string,
   options: MarkdownSerializerOptions = {},
 ): string {
-  const {transformers = TRANSFORMERS, nodes} = options;
-  const editor = createSerializerEditor(nodes);
-  const state = editor.parseEditorState(editorStateJSON);
-  return state.read(() => $convertToMarkdownString([...transformers]));
+  const editor = createSerializerEditor(options);
+  try {
+    editor.setEditorState(editor.parseEditorState(editorStateJSON));
+    return editor.read(() => $convertToMarkdownString());
+  } finally {
+    editor.dispose();
+  }
 }

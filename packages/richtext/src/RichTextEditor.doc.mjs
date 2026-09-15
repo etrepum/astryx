@@ -89,7 +89,7 @@ export const docs = {
       name: 'nodes',
       type: 'ReadonlyArray<Klass<LexicalNode>>',
       description:
-        'Additional Lexical nodes to register beyond the default OSS set (Heading, Quote, List, Link, Code). Extension point for custom nodes (mentions, images) without forking.',
+        'Additional Lexical nodes beyond the built-in CommonMark/GFM schema. Extension point for custom nodes (mentions, images) without forking.',
     },
     {
       name: 'toolbar',
@@ -101,21 +101,20 @@ export const docs = {
       name: 'plugins',
       type: 'ReactNode',
       description:
-        'Additional Lexical plugins rendered inside the composer. Compose mentions, autolink, and other editor behavior on top of the base editor.',
+        'Additional React UI rendered inside the composer. Use extensions to configure editor behavior.',
     },
     {
       name: 'hasMarkdownShortcuts',
       type: 'boolean',
       description:
-        'Enable Markdown shortcut typing (e.g. "# " for a heading). Uses the transformers prop (defaults to the standard @lexical/markdown transformers).',
+        'Enable CommonMark and GFM shortcut typing through @lexical/mdast (e.g. "# " for a heading). Import and export remain enabled when shortcuts are disabled.',
       default: 'true',
     },
     {
-      name: 'transformers',
-      type: 'ReadonlyArray<Transformer>',
+      name: 'extensions',
+      type: 'ReadonlyArray<AnyLexicalExtensionArgument>',
       description:
-        'Markdown transformers: the single source of truth for markdown behaviour. Defaults to the standard @lexical/markdown TRANSFORMERS. In Lexical the same array drives all three markdown operations (shortcut typing, markdown->state import, state->markdown export); this prop wires shortcut typing today and is the intended input for the serialization APIs added in later phases. Pass a custom array to support additional node types (e.g. transformers layered in via the nodes extension point) consistently across all three. Shortcut typing is only applied when hasMarkdownShortcuts is true.',
-      default: 'TRANSFORMERS',
+        'Additional Lexical extensions for custom nodes, behavior, and mdast import/export rules. Read once on mount; use extension output signals for runtime configuration or a new React key to replace the graph. Pass the same content extensions to RichTextView and the serializer helpers.',
     },
     {
       name: 'hasAutoFocus',
@@ -161,12 +160,12 @@ export const docs = {
   },
   usage: {
     description:
-      'A WYSIWYG rich-text editor built on Lexical, styled with Astryx design tokens. Its field container shares TextArea input visuals for the resting border, hover ring, focus-within ring, disabled state, and status colors. Experimental component in @astryxdesign/richtext (canary). lexical and @lexical/* are optional peer dependencies. The editor is deliberately minimal and extensible: pass toolbar, nodes, and plugins to layer richer behaviour (formatting, mentions, hover cards) on top without forking. Use RichTextView to render serialized content read-only.',
+      'A WYSIWYG rich-text editor built on Lexical, styled with Astryx design tokens. Its field container shares TextArea input visuals for the resting border, hover ring, focus-within ring, disabled state, and status colors. Experimental component in @astryxdesign/richtext (canary). lexical and @lexical/* are optional peer dependencies. The editor is deliberately minimal and extensible: pass toolbar and extensions to layer richer behaviour (formatting, mentions, hover cards) on top without forking. Use RichTextView to render serialized content read-only.',
     bestPractices: [
       {
         guidance: true,
         description:
-          'Install lexical and @lexical/react (optional peers) before importing from @astryxdesign/richtext.',
+          'Install all declared Lexical peers at the same 0.50.x version before importing from @astryxdesign/richtext; see the package README for the install command.',
       },
       {
         guidance: true,
@@ -176,17 +175,17 @@ export const docs = {
       {
         guidance: true,
         description:
-          'Register custom node types via the nodes prop on BOTH the editor and the RichTextView so serialized content round-trips.',
+          'Provide custom content extensions to the editor, RichTextView, and serializer helpers so nodes and Markdown rules round-trip. The nodes prop remains available for node-only additions.',
       },
       {
         guidance: true,
         description:
-          'Use a ref (RichTextEditorRef) to imperatively focus(), clear(), read the state via getEditorState(), serialize to Markdown via getMarkdown() or HTML via getHTML(), or reach the LexicalEditor via getEditor(). The handle is available after mount. getMarkdown() uses the same transformers prop the editor is configured with. focus() and clear() are no-ops when the editor is read-only or disabled, and clear() resets to a single empty paragraph.',
+          'Use a ref (RichTextEditorRef) to imperatively focus(), clear(), read the state via getEditorState(), serialize to Markdown via getMarkdown() or HTML via getHTML(), or reach the LexicalEditor via getEditor(). The handle is available after mount. getMarkdown() uses the same mdast extension rules as import and shortcut typing. focus() and clear() are no-ops when the editor is read-only or disabled, and clear() resets to a single empty paragraph.',
       },
       {
         guidance: true,
         description:
-          'To produce a defaultValue from Markdown without mounting an editor (e.g. on the server), use markdownToEditorStateJSON(markdown). Convert the other way with editorStateJSONToMarkdown(json). Both run headless via @lexical/headless and accept the same transformers/nodes options as the editor.',
+          'To produce a defaultValue from Markdown without mounting an editor (e.g. on the server), use markdownToEditorStateJSON(markdown). Convert the other way with editorStateJSONToMarkdown(json). Both build and dispose an extension editor without mounting a DOM root, and accept the same extensions/nodes options as the editor. Content extensions used by the helpers must work without a DOM or React tree.',
       },
       {
         guidance: true,
@@ -201,7 +200,7 @@ export const docs = {
       {
         guidance: true,
         description:
-          'Auto-linking: render RichTextEditorAutoLinkPlugin in the plugins slot to turn typed/pasted URLs and emails into links automatically. Created links open in a new tab by default (target=_blank, rel=noopener noreferrer, baked into the node). Pass matchers to recognize additional patterns (build them with createLinkMatcherWithRegExp).',
+          'Auto-linking: pass extensions={[RichTextEditorAutoLinkExtension]} to turn typed/pasted URLs and emails into links automatically. Created links open in a new tab by default (target=_blank, rel=noopener noreferrer, stored in the node). For custom matchers or change handlers, use configExtension(AutoLinkExtension, {matchers, changeHandlers}) from @lexical/link and lexical.',
       },
       {
         guidance: true,

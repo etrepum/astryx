@@ -440,11 +440,6 @@
     }
   },
   {
-    "component": "richtext/RichTextEditorAutoLinkPlugin",
-    "storyId": "lab-richtexteditor--with-auto-link",
-    "dims": []
-  },
-  {
     "component": "richtext/RichTextView",
     "storyId": "lab-richtexteditor--markdown-serializers",
     "dims": []
