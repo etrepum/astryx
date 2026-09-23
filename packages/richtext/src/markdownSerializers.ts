@@ -5,6 +5,7 @@
  * @input Uses @lexical/extension (buildEditorFromExtensions), @lexical/mdast
  *   ($convertFromMarkdownString / $convertToMarkdownString), and the shared
  *   RichTextContentExtension; custom nodes are configured only through extensions.
+ *   Uses Lexical's default error handling.
  * @output Standalone Markdown <-> serialized EditorState helpers:
  *   markdownToEditorStateJSON, editorStateJSONToMarkdown.
  * @position Re-exported from RichTextEditor/index.ts and the @astryxdesign/richtext
@@ -49,9 +50,6 @@ function createSerializerEditor({
       name: '@astryxdesign/richtext/Serializer',
       namespace: 'astryx-editor-serializer',
       dependencies: [extension],
-      onError(error: Error) {
-        throw error;
-      },
     }),
   );
 }

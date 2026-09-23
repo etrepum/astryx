@@ -5,7 +5,7 @@
 /**
  * @file RichTextEditor.tsx
  * @input Uses React, useId, Lexical (lexical + @lexical/react, composed through
- *   LexicalExtensionComposer and one root extension), @lexical/mdast, Field,
+ *   LexicalExtensionComposer and one root extension with default error handling), @lexical/mdast, Field,
  *   VisuallyHidden, useInputStatusIcon, mergeProps, design tokens
  * @output Exports an accessibly labelled RichTextEditor component with a flush
  *   top toolbar slot and configurable editable-surface minimum height, RichTextEditorProps,
@@ -481,10 +481,6 @@ export const RichTextEditor = forwardRef<
         // LexicalComposer did when no `editorState` was given. `null` would mean
         // "start from a genuinely empty root".
         $initialEditorState: defaultValue ?? undefined,
-        onError(error: Error) {
-          // Surface errors to the host app rather than swallowing them.
-          throw error;
-        },
       }),
     };
   }
