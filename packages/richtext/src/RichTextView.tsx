@@ -5,7 +5,7 @@
 /**
  * @file RichTextView.tsx
  * @input Uses React, Lexical (lexical + @lexical/react, composed through
- *   LexicalExtensionComposer), shared content extensions, design tokens
+ *   LexicalExtensionComposer), reactive value and shared content extensions, design tokens
  * @output Exports RichTextView component and RichTextViewProps
  * @position Read-only renderer for serialized Lexical editor state; experimental
  *   (richtext), exported from @astryxdesign/richtext
@@ -22,7 +22,7 @@ import {sharedEditorTheme} from './editorTheme';
 import type {BaseProps} from '@astryxdesign/core';
 
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
-import {useLexicalComposerContext} from '@lexical/react/LexicalComposerContext';
+import {useExtensionDependency} from '@lexical/react/useExtensionComponent';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
 import type {
   AnyLexicalExtension,
@@ -31,8 +31,8 @@ import type {
   LexicalNode,
   EditorThemeClasses,
 } from 'lexical';
-import {defineExtension} from 'lexical';
-import {RichTextContentExtension} from './RichTextContentExtension';
+import {configExtension, defineExtension} from 'lexical';
+import {RichTextViewExtension} from './RichTextViewExtension';
 
 const styles = stylex.create({
   root: {
@@ -77,42 +77,12 @@ export interface RichTextViewProps extends BaseProps {
   errorFallback?: ReactNode;
 }
 
-/**
- * Keeps the rendered content in sync with the `value` prop after mount.
- *
- * The editor's initial state is seeded once, when the composer mounts, so a
- * plain `<RichTextView value={changingValue} />` would freeze at its first
- * value — the content would never update when `value` changed. This plugin runs
- * inside the composer context and re-applies `value` whenever it changes, so the
- * read-only view stays reactive (e.g. previewing content edited elsewhere).
- *
- * The initial `value` is already applied via the extension's
- * `$initialEditorState`, so we skip the first run to avoid a redundant re-parse
- * on mount.
- *
- * This mirrors the canonical Lexical pattern for applying externally-sourced
- * serialized state after mount: the Lexical Playground's ActionsPlugin does the
- * same `editor.setEditorState(editor.parseEditorState(...))` from inside a
- * plugin (see facebook/lexical
- * packages/lexical-playground/src/plugins/ActionsPlugin/index.tsx). It is
- * necessary because the composer builds the editor once and reads the initial
- * state exactly once at that point, so a changed prop cannot re-seed the editor
- * on its own. A read-only view has no history, so we skip the Playground's
- * accompanying CLEAR_HISTORY_COMMAND.
- *
- * `parseEditorState` / `setEditorState` are methods on the editor instance, so
- * this plugin needs no module-level Lexical imports of its own.
- */
-function SyncValuePlugin({value}: {value: string}): null {
-  const [editor] = useLexicalComposerContext();
-  const isFirstRun = useRef(true);
+/** Forward current React props to the view extension's value signal. */
+function ViewPropsBridge({value}: {value: string}): null {
+  const {output} = useExtensionDependency(RichTextViewExtension);
   useEffect(() => {
-    if (isFirstRun.current) {
-      isFirstRun.current = false;
-      return;
-    }
-    editor.setEditorState(editor.parseEditorState(value));
-  }, [editor, value]);
+    output.value.value = value;
+  }, [output, value]);
   return null;
 }
 
@@ -147,7 +117,7 @@ export function RichTextView({
   // Built on first render (and again after an error, below) rather than per
   // render: LexicalExtensionComposer re-creates the editor whenever the
   // extension's identity changes, and `value` updates are applied in place by
-  // SyncValuePlugin instead.
+  // RichTextViewExtension instead.
   const extensionRef = useRef<AnyLexicalExtension | null>(null);
 
   const [hasError, setHasError] = useState(false);
@@ -200,7 +170,10 @@ export function RichTextView({
       namespace,
       theme: themeRef.current,
       editable: false,
-      dependencies: [RichTextContentExtension, ...(extensions ?? [])],
+      dependencies: [
+        configExtension(RichTextViewExtension, {value}),
+        ...(extensions ?? []),
+      ],
       nodes: nodes ? [...nodes] : [],
       $initialEditorState: value,
       // A read-only view renders persisted content; a bad node/schema should not
@@ -218,7 +191,7 @@ export function RichTextView({
       <LexicalExtensionComposer
         extension={extensionRef.current}
         contentEditable={null}>
-        <SyncValuePlugin value={value} />
+        <ViewPropsBridge value={value} />
         <ContentEditable />
         {plugins}
       </LexicalExtensionComposer>

@@ -165,7 +165,7 @@ export const docs = {
       {
         guidance: true,
         description:
-          'Install all declared Lexical peers at the same 0.50.x version before importing from @astryxdesign/richtext; see the package README for the install command.',
+          'Install all declared Lexical peers at the same 0.51.x version before importing from @astryxdesign/richtext; see the package README for the install command.',
       },
       {
         guidance: true,

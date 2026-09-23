@@ -936,7 +936,7 @@ describe('RichTextEditor Tab keyboard trap escape (WCAG 2.1.2)', () => {
   /**
    * Renders the editor followed by a button, focuses the contenteditable and
    * seeds a single-item bullet list with the caret at the start of the item —
-   * the position where TabIndentationPlugin turns Tab into an indent (and
+   * the position where TabIndentationExtension turns Tab into an indent (and
    * calls preventDefault, which is the keyboard trap under test).
    */
   async function setUpListEditor() {
@@ -1579,6 +1579,111 @@ describe('RichTextEditorToolbar — links', () => {
     fireEvent.keyDown(textbox, {key: 'k', metaKey: true, shiftKey: true});
     fireEvent.keyDown(textbox, {key: 'k', ctrlKey: true, shiftKey: true});
     expect(promptForUrl).not.toHaveBeenCalled();
+  });
+
+  it('cleans up the link shortcut when the toolbar changes or unmounts', () => {
+    const first = vi.fn(() => null);
+    const next = vi.fn(() => null);
+    const {rerender} = render(
+      <StrictMode>
+        <RichTextEditor
+          label="Notes"
+          toolbar={<RichTextEditorToolbar promptForUrl={first} />}
+        />
+      </StrictMode>,
+    );
+    const shortcut = () => {
+      const textbox = screen.getByRole('textbox');
+      fireEvent.keyDown(textbox, {key: 'k', metaKey: true});
+      fireEvent.keyDown(textbox, {key: 'k', ctrlKey: true});
+    };
+    shortcut();
+    expect(first).toHaveBeenCalledTimes(1);
+    rerender(
+      <StrictMode>
+        <RichTextEditor
+          label="Notes"
+          toolbar={<RichTextEditorToolbar promptForUrl={next} />}
+        />
+      </StrictMode>,
+    );
+    shortcut();
+    expect(first).toHaveBeenCalledTimes(1);
+    expect(next).toHaveBeenCalledTimes(1);
+    rerender(
+      <StrictMode>
+        <RichTextEditor
+          label="Notes"
+          toolbar={
+            <RichTextEditorToolbar hasLink={false} promptForUrl={next} />
+          }
+        />
+      </StrictMode>,
+    );
+    shortcut();
+    expect(next).toHaveBeenCalledTimes(1);
+    rerender(
+      <StrictMode>
+        <RichTextEditor label="Notes" />
+      </StrictMode>,
+    );
+    shortcut();
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps toolbar history and selection state while the controls are unmounted', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(<RichTextEditor ref={ref} label="Notes" />);
+    const editor = ref.current!.getEditor();
+    await act(async () => {
+      editor.update(() => $convertFromMarkdownString('First'), {
+        discrete: true,
+        tag: HISTORY_PUSH_TAG,
+      });
+      editor.update(
+        () => {
+          $convertFromMarkdownString('**Second**');
+          // jsdom does not reconcile the DOM caret's pending format.
+          $getRoot().getFirstDescendant()!.selectEnd().toggleFormat('bold');
+        },
+        {discrete: true, tag: HISTORY_PUSH_TAG},
+      );
+    });
+    rerender(
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        toolbar={<RichTextEditorToolbar />}
+      />,
+    );
+    expect(ref.current!.getEditor()).toBe(editor);
+    expect(screen.getByRole('button', {name: 'Bold'})).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.getByRole('button', {name: 'Undo'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Undo'}));
+    await waitFor(() => expect(ref.current!.getMarkdown()).toBe('First'));
+    expect(screen.getByRole('button', {name: 'Redo'})).toBeEnabled();
+    rerender(
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        isReadOnly
+        toolbar={<RichTextEditorToolbar />}
+      />,
+    );
+    expect(screen.getByRole('button', {name: 'Bold'})).toBeDisabled();
+    rerender(
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        toolbar={<RichTextEditorToolbar />}
+      />,
+    );
+    expect(screen.getByRole('button', {name: 'Bold'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button', {name: 'Redo'}));
+    await waitFor(() => expect(ref.current!.getMarkdown()).toBe('**Second**'));
   });
 
   it('creates a sanitized link over the selected text via promptForUrl', async () => {

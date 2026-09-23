@@ -5,7 +5,7 @@
 /**
  * @file RichTextEditorToolbar.tsx
  * @input Uses React, @lexical/react (composer context), @lexical/rich-text,
- *   @lexical/selection, @lexical/list, @lexical/utils, and the lexical core
+ *   @lexical/selection, @lexical/list, RichTextToolbarExtension, and the lexical core
  *   command constants, plus Astryx Toolbar / IconButton / Selector /
  *   ToggleButton / Divider / Dialog / TextInput / Button / Layout primitives.
  * @output Exports RichTextEditorToolbar (a compact formatting toolbar with a
@@ -36,7 +36,6 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
   type FormEvent,
   type ReactNode,
@@ -47,18 +46,13 @@ import {$setBlocksType} from '@lexical/selection';
 import {
   $createHeadingNode,
   $createQuoteNode,
-  $isHeadingNode,
-  $isQuoteNode,
   type HeadingTagType,
 } from '@lexical/rich-text';
 import {
-  $isListNode,
-  ListNode,
   INSERT_ORDERED_LIST_COMMAND,
   INSERT_UNORDERED_LIST_COMMAND,
 } from '@lexical/list';
 import {TOGGLE_LINK_COMMAND, $isLinkNode, $createLinkNode} from '@lexical/link';
-import {$getNearestNodeOfType} from '@lexical/utils';
 import {Toolbar} from '@astryxdesign/core/Toolbar';
 import {IconButton} from '@astryxdesign/core/IconButton';
 import {Selector, type SelectorOptionType} from '@astryxdesign/core/Selector';
@@ -76,49 +70,29 @@ import {
 } from '@astryxdesign/core/Layout';
 import {getExtendedIcon} from '@astryxdesign/core/Icon';
 import {
-  mergeRegister,
   FORMAT_TEXT_COMMAND,
   UNDO_COMMAND,
   REDO_COMMAND,
-  CAN_UNDO_COMMAND,
-  CAN_REDO_COMMAND,
-  SELECTION_CHANGE_COMMAND,
-  KEY_DOWN_COMMAND,
-  COMMAND_PRIORITY_CRITICAL,
-  COMMAND_PRIORITY_NORMAL,
-  IS_APPLE,
-  isExactShortcutMatch,
   $getSelection,
   $isRangeSelection,
   $setSelection,
   $createParagraphNode,
   $createTextNode,
-  type RangeSelection,
 } from 'lexical';
 import {sanitizeUrl} from './linkUtils';
-
-/** Block types exposed by the toolbar's format selector. */
-type BlockType =
-  'paragraph' | 'h1' | 'h2' | 'h3' | 'quote' | 'bullet' | 'number';
+import {useExtensionDependency} from '@lexical/react/useExtensionComponent';
+import {useSignalValue} from '@lexical/react/useExtensionSignalValue';
+import {
+  RichTextToolbarExtension,
+  type BlockType,
+  type LinkContext,
+} from './RichTextToolbarExtension';
 
 const HEADING_LABELS: Record<'h1' | 'h2' | 'h3', string> = {
   h1: 'Heading 1',
   h2: 'Heading 2',
   h3: 'Heading 3',
 };
-
-/**
- * The platform-primary modifier for shortcuts: Cmd on Apple, Ctrl elsewhere.
- * Mirrors the Lexical playground's `CONTROL_OR_META`
- * (packages/lexical-playground/src/plugins/ShortcutsPlugin/shortcuts.ts).
- */
-const CONTROL_OR_META = {ctrlKey: !IS_APPLE, metaKey: IS_APPLE};
-
-interface LinkContext {
-  selectedText: string;
-  url: string;
-  isLink: boolean;
-}
 
 // A vertical Divider's default 100% height needs a definite parent height.
 // Toolbar slots are sized by their controls instead, so let flexbox stretch
@@ -142,16 +116,6 @@ const toolbarScrollStyles = stylex.create({
     scrollbarWidth: 'thin',
   },
 });
-
-/**
- * Whether `event` is the insert-link shortcut (Cmd/Ctrl+K). Uses Lexical's
- * `isExactShortcutMatch`, which — unlike a loose `metaKey || ctrlKey` check —
- * requires exactly the primary modifier and rejects the combo when other
- * modifiers (Shift/Alt) are also held. Matches the playground's `isInsertLink`.
- */
-function isInsertLink(event: KeyboardEvent): boolean {
-  return isExactShortcutMatch(event, 'k', CONTROL_OR_META);
-}
 
 /**
  * Stable icon-registry keys for the toolbar's controls. Themes can override any
@@ -468,7 +432,7 @@ export interface RichTextEditorToolbarProps {
  *
  * Render it inside the editor's `toolbar` slot — it uses
  * `useLexicalComposerContext()` to reach the editor, so it must live within the
- * `LexicalComposer` the editor sets up.
+ * `LexicalExtensionComposer` the editor sets up.
  *
  * @example
  * ```
@@ -490,83 +454,20 @@ export function RichTextEditorToolbar({
   endContent,
 }: RichTextEditorToolbarProps) {
   const [editor] = useLexicalComposerContext();
-  const [activeFormats, setActiveFormats] = useState<Set<string>>(new Set());
-  const [blockType, setBlockType] = useState<BlockType>('paragraph');
-  const [isLink, setIsLink] = useState(false);
-  const [canUndo, setCanUndo] = useState(false);
-  const [canRedo, setCanRedo] = useState(false);
-  const [isEditable, setIsEditable] = useState(() => editor.isEditable());
-  const savedSelectionRef = useRef<RangeSelection | null>(null);
-  const lastLinkContextRef = useRef<LinkContext>({
-    selectedText: '',
-    url: '',
-    isLink: false,
-  });
+  const {output} = useExtensionDependency(RichTextToolbarExtension);
+  const activeFormats = useSignalValue(output.activeFormats);
+  const blockType = useSignalValue(output.blockType);
+  const isLink = useSignalValue(output.isLink);
+  const canUndo = useSignalValue(output.canUndo);
+  const canRedo = useSignalValue(output.canRedo);
+  const isEditable = useSignalValue(output.isEditable);
   const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
   const [isEditingLink, setIsEditingLink] = useState(false);
   const [linkUrl, setLinkUrl] = useState('');
   const [linkError, setLinkError] = useState('');
 
-  const $syncToolbar = useCallback(() => {
-    const selection = $getSelection();
-    if (!$isRangeSelection(selection)) {
-      return;
-    }
-    const formats = new Set<string>();
-    for (const fmt of [
-      'bold',
-      'italic',
-      'underline',
-      'strikethrough',
-      'code',
-    ] as const) {
-      if (selection.hasFormat(fmt)) {
-        formats.add(fmt);
-      }
-    }
-    setActiveFormats(formats);
-
-    // Link active state — a link is "active" when the caret/selection anchor
-    // sits inside a LinkNode (or its immediate parent is one). Mirrors the EPS
-    // eps-lexical toolbar (`$isLinkNode(parent) || $isLinkNode(node)`), which is
-    // the implementation astryx aims to be swappable with.
-    const node = selection.anchor.getNode();
-    const parent = node.getParent();
-    const linkNode = $isLinkNode(node)
-      ? node
-      : $isLinkNode(parent)
-        ? parent
-        : null;
-    const selectionIsLink = linkNode != null;
-    setIsLink(selectionIsLink);
-    savedSelectionRef.current = selection.clone();
-    lastLinkContextRef.current = {
-      selectedText: selection.getTextContent(),
-      url: linkNode?.getURL() ?? '',
-      isLink: selectionIsLink,
-    };
-    const anchorNode = selection.anchor.getNode();
-    const element =
-      anchorNode.getKey() === 'root'
-        ? anchorNode
-        : anchorNode.getTopLevelElementOrThrow();
-    if ($isListNode(element)) {
-      const parentList = $getNearestNodeOfType<ListNode>(anchorNode, ListNode);
-      const type = parentList
-        ? parentList.getListType()
-        : element.getListType();
-      setBlockType(type === 'number' ? 'number' : 'bullet');
-    } else if ($isHeadingNode(element)) {
-      setBlockType(element.getTag() as BlockType);
-    } else if ($isQuoteNode(element)) {
-      setBlockType('quote');
-    } else {
-      setBlockType('paragraph');
-    }
-  }, []);
-
   const readLinkContext = useCallback((): LinkContext => {
-    let context = lastLinkContextRef.current;
+    let context = output.linkContext.peek();
     editor.getEditorState().read(() => {
       const selection = $getSelection();
       if (!$isRangeSelection(selection)) {
@@ -579,26 +480,26 @@ export function RichTextEditorToolbar({
         : $isLinkNode(parent)
           ? parent
           : null;
-      savedSelectionRef.current = selection.clone();
+      output.selection.value = selection.clone();
       context = {
         selectedText: selection.getTextContent(),
         url: linkNode?.getURL() ?? '',
         isLink: linkNode != null,
       };
-      lastLinkContextRef.current = context;
+      output.linkContext.value = context;
     });
     return context;
-  }, [editor]);
+  }, [editor, output]);
 
   const restoreLinkSelection = useCallback(() => {
-    const savedSelection = savedSelectionRef.current;
+    const savedSelection = output.selection.peek();
     if (!savedSelection) {
       return;
     }
     editor.update(() => {
       $setSelection(savedSelection.clone());
     });
-  }, [editor]);
+  }, [editor, output]);
 
   const applyLinkValue = useCallback(
     (entered: string): boolean => {
@@ -699,59 +600,11 @@ export function RichTextEditorToolbar({
   }, [closeLinkDialogToEditor, editor, restoreLinkSelection]);
 
   useEffect(() => {
-    return mergeRegister(
-      editor.registerUpdateListener(({editorState}) => {
-        editorState.read($syncToolbar);
-      }),
-      editor.registerCommand(
-        SELECTION_CHANGE_COMMAND,
-        () => {
-          $syncToolbar();
-          return false;
-        },
-        COMMAND_PRIORITY_CRITICAL,
-      ),
-      editor.registerCommand(
-        CAN_UNDO_COMMAND,
-        payload => {
-          setCanUndo(payload);
-          return false;
-        },
-        COMMAND_PRIORITY_CRITICAL,
-      ),
-      editor.registerCommand(
-        CAN_REDO_COMMAND,
-        payload => {
-          setCanRedo(payload);
-          return false;
-        },
-        COMMAND_PRIORITY_CRITICAL,
-      ),
-      editor.registerEditableListener(editable => {
-        setIsEditable(editable);
-      }),
-      // Cmd/Ctrl+K opens link insertion. Detection mirrors the Lexical
-      // playground's ShortcutsPlugin (isInsertLink → isExactShortcutMatch with
-      // CONTROL_OR_META), so it fires only on the exact primary-modifier combo
-      // and ignores Cmd+Shift+K etc. Only registered when the link button is
-      // enabled. Returns true to consume the event so the browser's own
-      // shortcut doesn't also fire.
-      hasLink
-        ? editor.registerCommand(
-            KEY_DOWN_COMMAND,
-            (event: KeyboardEvent) => {
-              if (isInsertLink(event)) {
-                event.preventDefault();
-                toggleLink();
-                return true;
-              }
-              return false;
-            },
-            COMMAND_PRIORITY_NORMAL,
-          )
-        : () => {},
-    );
-  }, [editor, $syncToolbar, hasLink, toggleLink]);
+    output.onInsertLink.value = hasLink ? toggleLink : undefined;
+    return () => {
+      output.onInsertLink.value = undefined;
+    };
+  }, [output, hasLink, toggleLink]);
 
   const toggleInlineFormat = (format: InlineFormat) => {
     // FORMAT_TEXT_COMMAND payload is a TextFormatType; the values we pass are

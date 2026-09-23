@@ -11,7 +11,9 @@ import {RichTextEditor, RichTextView} from '@astryxdesign/richtext';
 ```
 
 The editor is built from Lexical extensions for rich text, lists, links, history,
-Tab indentation, and CommonMark/GFM Markdown through `@lexical/mdast`.
+Tab indentation, toolbar state and shortcuts, read-only value synchronization,
+and CommonMark/GFM Markdown through `@lexical/mdast`. No legacy Lexical React
+feature plugins are mounted.
 `RichTextEditorToolbar` goes in the `toolbar` slot; additional React UI can use
 `plugins`. Configure custom nodes, behavior, and Markdown rules with `extensions`.
 Pass the same content extensions to `RichTextView`, `markdownToEditorStateJSON`,
@@ -20,7 +22,7 @@ build and dispose an editor without mounting a DOM root; their extensions must
 work without a DOM or React tree.
 
 `lexical` and the `@lexical/*` packages are **optional** peer dependencies —
-install the matching 0.50.x packages below to use richtext. It consumes
+install the matching 0.51.x packages below to use richtext. It consumes
 `@astryxdesign/core` theme tokens directly.
 
 It ships to npm **only under the `@canary` dist-tag** — there is never a stable
@@ -57,11 +59,11 @@ you must request that tag explicitly. There is no `latest` version to install.
 ```bash
 npm install @astryxdesign/richtext@canary @astryxdesign/core@canary
 # plus the optional lexical peers you use:
-npm install lexical@0.50.0 @lexical/react@0.50.0 @lexical/extension@0.50.0 \
-  @lexical/mdast@0.50.0 @lexical/rich-text@0.50.0 @lexical/list@0.50.0 \
-  @lexical/link@0.50.0 @lexical/code-core@0.50.0 @lexical/html@0.50.0 \
-  @lexical/selection@0.50.0 @lexical/utils@0.50.0 @lexical/history@0.50.0 \
-  @lexical/clipboard@0.50.0 @lexical/table@0.50.0
+npm install lexical@0.51.0 @lexical/react@0.51.0 @lexical/extension@0.51.0 \
+  @lexical/mdast@0.51.0 @lexical/rich-text@0.51.0 @lexical/list@0.51.0 \
+  @lexical/link@0.51.0 @lexical/code-core@0.51.0 @lexical/html@0.51.0 \
+  @lexical/selection@0.51.0 @lexical/utils@0.51.0 @lexical/history@0.51.0 \
+  @lexical/clipboard@0.51.0 @lexical/table@0.51.0
 ```
 
 > Canary builds track the latest commit on `main` (`0.x.y-canary.<sha>`). They

@@ -39,6 +39,7 @@ import {
   type LexicalEditor,
 } from 'lexical';
 import {RichTextContentExtension} from './RichTextContentExtension';
+import {RichTextToolbarExtension} from './RichTextToolbarExtension';
 
 interface EditorCallbacks {
   onChange: ((state: EditorState, editor: LexicalEditor) => void) | undefined;
@@ -58,6 +59,7 @@ export const RichTextEditorExtension = defineExtension({
   name: '@astryxdesign/richtext/Editor',
   dependencies: [
     RichTextContentExtension,
+    RichTextToolbarExtension,
     HistoryExtension,
     ClearEditorExtension,
     ListExtension,
