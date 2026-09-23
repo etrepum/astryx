@@ -5,13 +5,13 @@
 /**
  * @file RichTextView.tsx
  * @input Uses React, Lexical (lexical + @lexical/react, composed through
- *   LexicalExtensionComposer), reactive value and shared content extensions, design tokens
+ *   LexicalExtensionComposer), one content root extension, reactive value, and design tokens
  * @output Exports RichTextView component and RichTextViewProps
  * @position Read-only renderer for serialized Lexical editor state; experimental
  *   (richtext), exported from @astryxdesign/richtext
  *
  * SYNC: When modified, update these files to stay in sync:
- * - /packages/richtext/src/RichTextView.test.tsx
+ * - /packages/richtext/src/RichTextEditor.test.tsx
  * - /packages/richtext/src/index.ts
  * - /apps/storybook/stories/RichTextEditor.stories.tsx
  */
@@ -24,14 +24,9 @@ import type {BaseProps} from '@astryxdesign/core';
 import {LexicalExtensionComposer} from '@lexical/react/LexicalExtensionComposer';
 import {useExtensionDependency} from '@lexical/react/useExtensionComponent';
 import {ContentEditable} from '@lexical/react/LexicalContentEditable';
-import type {
-  AnyLexicalExtension,
-  AnyLexicalExtensionArgument,
-  Klass,
-  LexicalNode,
-  EditorThemeClasses,
-} from 'lexical';
+import type {AnyLexicalExtension, EditorThemeClasses} from 'lexical';
 import {configExtension, defineExtension} from 'lexical';
+import {RichTextContentExtension} from './RichTextContentExtension';
 import {RichTextViewExtension} from './RichTextViewExtension';
 
 const styles = stylex.create({
@@ -47,12 +42,11 @@ export interface RichTextViewProps extends BaseProps {
    */
   value: string;
   /**
-   * Additional Lexical nodes to register beyond the default OSS set. Must match
-   * the nodes used to author `value` so custom node types deserialize.
+   * Module-level content extension depending on RichTextContentExtension.
+   * Changing its identity rebuilds the view with the current value.
+   * @default RichTextContentExtension
    */
-  nodes?: ReadonlyArray<Klass<LexicalNode>>;
-  /** Content extensions matching those used by the editor and serializers. Read once on mount. */
-  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>;
+  extension?: AnyLexicalExtension;
   /**
    * Additional read-only plugins to render inside the composer (e.g. hover
    * cards, decorators).
@@ -62,7 +56,7 @@ export interface RichTextViewProps extends BaseProps {
   namespace?: string;
   /**
    * Called when `value` cannot be parsed/rendered (e.g. malformed JSON, or
-   * state authored with node types not registered via `nodes`). A read-only
+   * state authored with node types not registered via `extension`). A read-only
    * view renders *persisted* content — exactly where stale or foreign-schema
    * state shows up — so by default a parse failure renders `errorFallback`
    * instead of throwing and taking down the host. Provide `onParseError` to log or
@@ -98,8 +92,7 @@ function ViewPropsBridge({value}: {value: string}): null {
  */
 export function RichTextView({
   value,
-  nodes,
-  extensions,
+  extension = RichTextContentExtension,
   plugins,
   namespace = 'astryx-view',
   onParseError,
@@ -114,21 +107,24 @@ export function RichTextView({
     themeRef.current = sharedEditorTheme();
   }
 
-  // Built on first render (and again after an error, below) rather than per
-  // render: LexicalExtensionComposer re-creates the editor whenever the
-  // extension's identity changes, and `value` updates are applied in place by
-  // RichTextViewExtension instead.
-  const extensionRef = useRef<AnyLexicalExtension | null>(null);
+  // Value updates preserve the editor; a new content extension replaces it.
+  const extensionRef = useRef<{
+    source: AnyLexicalExtension;
+    resolved: AnyLexicalExtension;
+  } | null>(null);
 
   const [hasError, setHasError] = useState(false);
 
-  // Reset the error state when the value changes so a corrected value recovers.
-  const lastValueRef = useRef(value);
-  if (lastValueRef.current !== value && hasError) {
-    lastValueRef.current = value;
-    setHasError(false);
-  } else {
-    lastValueRef.current = value;
+  // A corrected value or a replacement schema can recover a parse failure.
+  const lastInputRef = useRef({value, extension});
+  if (
+    lastInputRef.current.value !== value ||
+    lastInputRef.current.extension !== extension
+  ) {
+    lastInputRef.current = {value, extension};
+    if (hasError) {
+      setHasError(false);
+    }
   }
 
   const handleError = (error: Error) => {
@@ -164,22 +160,27 @@ export function RichTextView({
     );
   }
 
-  if (extensionRef.current === null) {
-    extensionRef.current = defineExtension({
-      name: '@astryxdesign/richtext/RichTextView',
-      namespace,
-      theme: themeRef.current,
-      editable: false,
-      dependencies: [
-        configExtension(RichTextViewExtension, {value}),
-        ...(extensions ?? []),
-      ],
-      nodes: nodes ? [...nodes] : [],
-      $initialEditorState: value,
-      // A read-only view renders persisted content; a bad node/schema should not
-      // crash the host. Surface it via onParseError + fallback instead of re-throwing.
-      onError: handleError,
-    });
+  if (
+    extensionRef.current === null ||
+    extensionRef.current.source !== extension
+  ) {
+    extensionRef.current = {
+      source: extension,
+      resolved: defineExtension({
+        name: '@astryxdesign/richtext/RichTextView',
+        namespace,
+        theme: themeRef.current,
+        editable: false,
+        dependencies: [
+          configExtension(RichTextViewExtension, {value}),
+          extension,
+        ],
+        $initialEditorState: value,
+        // A read-only view renders persisted content; a bad node/schema should not
+        // crash the host. Surface it via onParseError + fallback instead of re-throwing.
+        onError: handleError,
+      }),
+    };
   }
 
   return (
@@ -189,7 +190,7 @@ export function RichTextView({
       style={style}
       {...rest}>
       <LexicalExtensionComposer
-        extension={extensionRef.current}
+        extension={extensionRef.current.resolved}
         contentEditable={null}>
         <ViewPropsBridge value={value} />
         <ContentEditable />

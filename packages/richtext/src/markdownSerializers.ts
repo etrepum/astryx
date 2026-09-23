@@ -4,7 +4,7 @@
  * @file markdownSerializers.ts
  * @input Uses @lexical/extension (buildEditorFromExtensions), @lexical/mdast
  *   ($convertFromMarkdownString / $convertToMarkdownString), and the shared
- *   RichTextContentExtension.
+ *   RichTextContentExtension; custom nodes are configured only through extensions.
  * @output Standalone Markdown <-> serialized EditorState helpers:
  *   markdownToEditorStateJSON, editorStateJSONToMarkdown.
  * @position Re-exported from RichTextEditor/index.ts and the @astryxdesign/richtext
@@ -28,38 +28,27 @@ import {
   $convertToMarkdownString,
 } from '@lexical/mdast';
 import {RichTextContentExtension} from './RichTextContentExtension';
-import {
-  defineExtension,
-  type AnyLexicalExtensionArgument,
-  type Klass,
-  type LexicalNode,
-} from 'lexical';
+import {defineExtension, type AnyLexicalExtension} from 'lexical';
 
 /** Options shared by the Markdown serializer helpers. */
 export interface MarkdownSerializerOptions {
   /**
-   * Additional content extensions. Pass the same extensions as the editor and
-   * view so custom nodes and mdast import/export rules round-trip consistently.
-   * Extensions used here must work without a mounted DOM or React tree.
+   * Root content extension depending on RichTextContentExtension. Share it with
+   * the view and include it in the editor extension’s dependencies so custom
+   * nodes and Markdown rules round-trip. Must work without a DOM or React tree.
+   * @default RichTextContentExtension
    */
-  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>;
-  /**
-   * Extra Lexical nodes to register beyond the default OSS set, mirroring the
-   * editor's `nodes` prop. Required for custom node types to serialize.
-   */
-  nodes?: ReadonlyArray<Klass<LexicalNode>>;
+  extension?: AnyLexicalExtension;
 }
 
 function createSerializerEditor({
-  nodes,
-  extensions,
+  extension = RichTextContentExtension,
 }: MarkdownSerializerOptions) {
   return buildEditorFromExtensions(
     defineExtension({
       name: '@astryxdesign/richtext/Serializer',
       namespace: 'astryx-editor-serializer',
-      dependencies: [RichTextContentExtension, ...(extensions ?? [])],
-      nodes: nodes ? [...nodes] : [],
+      dependencies: [extension],
       onError(error: Error) {
         throw error;
       },

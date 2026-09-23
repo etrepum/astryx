@@ -24,6 +24,8 @@ import {
   $isListItemNode,
 } from '@lexical/list';
 import {
+  TextNode,
+  type SerializedTextNode,
   $getRoot,
   $getSelection,
   $isRangeSelection,
@@ -37,10 +39,11 @@ import {
   $createTextNode,
   $isElementNode,
 } from 'lexical';
-import {HeadingNode} from '@lexical/rich-text';
 import {$convertFromMarkdownString, MdastImportExtension} from '@lexical/mdast';
 import {RichTextEditor, type RichTextEditorRef} from './RichTextEditor';
 import {RichTextView} from './RichTextView';
+import {RichTextEditorExtension} from './RichTextEditorExtension';
+import {RichTextContentExtension} from './RichTextContentExtension';
 import {
   markdownToEditorStateJSON,
   editorStateJSONToMarkdown,
@@ -58,6 +61,7 @@ import {sanitizeUrl, validateUrl} from './linkUtils';
 const PlainHeadingExtension = defineExtension({
   name: 'test/PlainHeading',
   dependencies: [
+    RichTextContentExtension,
     configExtension(MdastImportExtension, {
       importRules: [
         {
@@ -77,6 +81,52 @@ const PlainHeadingExtension = defineExtension({
       ],
     }),
   ],
+});
+
+const PlainHeadingEditorExtension = defineExtension({
+  name: 'test/PlainHeadingEditor',
+  dependencies: [RichTextEditorExtension, PlainHeadingExtension],
+});
+const AutoLinkEditorExtension = defineExtension({
+  name: 'test/AutoLinkEditor',
+  dependencies: [RichTextEditorExtension, RichTextEditorAutoLinkExtension],
+});
+
+class CustomTextNode extends TextNode {
+  static getType() {
+    return 'custom-text';
+  }
+  static clone(node: CustomTextNode) {
+    return new CustomTextNode(node.getTextContent(), node.getKey());
+  }
+  static importJSON(serialized: SerializedTextNode) {
+    return new CustomTextNode().updateFromJSON(serialized);
+  }
+  exportJSON(): SerializedTextNode {
+    return {...super.exportJSON(), type: 'custom-text'};
+  }
+}
+const CustomTextExtension = defineExtension({
+  name: 'test/CustomText',
+  nodes: [CustomTextNode],
+  dependencies: [
+    RichTextContentExtension,
+    configExtension(MdastImportExtension, {
+      importRules: [
+        {type: 'text', $import: node => new CustomTextNode(node.value)},
+      ],
+      exportRules: [
+        {
+          type: 'custom-text',
+          $export: node => ({type: 'text', value: node.getTextContent()}),
+        },
+      ],
+    }),
+  ],
+});
+const CustomTextEditorExtension = defineExtension({
+  name: 'test/CustomTextEditor',
+  dependencies: [RichTextEditorExtension, CustomTextExtension],
 });
 
 function typeText(editor: LexicalEditor, text: string) {
@@ -578,7 +628,7 @@ describe('RichTextEditor', () => {
       <RichTextEditor
         ref={ref}
         label="Notes"
-        extensions={[PlainHeadingExtension]}
+        extension={PlainHeadingEditorExtension}
       />,
     );
     await act(async () => {
@@ -590,10 +640,14 @@ describe('RichTextEditor', () => {
     expect(screen.getByRole('textbox')).toHaveTextContent('Title');
   });
 
-  it('preserves content, history, and editor identity when inline extension arrays rerender', async () => {
+  it('preserves content, history, and editor identity when the root extension stays the same', async () => {
     const ref = createRef<RichTextEditorRef>();
     const {rerender} = render(
-      <RichTextEditor ref={ref} label="Notes" extensions={[]} />,
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        extension={RichTextEditorExtension}
+      />,
     );
     const editor = ref.current!.getEditor();
     await act(async () => {
@@ -606,7 +660,13 @@ describe('RichTextEditor', () => {
         tag: HISTORY_PUSH_TAG,
       });
     });
-    rerender(<RichTextEditor ref={ref} label="Renamed" extensions={[]} />);
+    rerender(
+      <RichTextEditor
+        ref={ref}
+        label="Renamed"
+        extension={RichTextEditorExtension}
+      />,
+    );
     expect(ref.current!.getEditor()).toBe(editor);
     expect(ref.current!.getMarkdown()).toBe('First second');
     await act(async () => {
@@ -617,6 +677,31 @@ describe('RichTextEditor', () => {
       editor.dispatchCommand(REDO_COMMAND, undefined);
     });
     expect(ref.current!.getMarkdown()).toBe('First second');
+  });
+
+  it('creates a new editor when the root extension changes', async () => {
+    const ref = createRef<RichTextEditorRef>();
+    const {rerender} = render(
+      <RichTextEditor ref={ref} label="Notes" defaultValue={HELLO_STATE} />,
+    );
+    const original = ref.current!.getEditor();
+    rerender(
+      <RichTextEditor
+        ref={ref}
+        label="Notes"
+        defaultValue={HELLO_STATE}
+        extension={PlainHeadingEditorExtension}
+      />,
+    );
+    const replacement = ref.current!.getEditor();
+    expect(replacement).not.toBe(original);
+    expect(ref.current!.getMarkdown()).toBe('Hello world');
+    await act(async () => {
+      replacement.update(() => $convertFromMarkdownString('# Title'), {
+        discrete: true,
+      });
+    });
+    expect(ref.current!.getMarkdown()).toBe('Title');
   });
 
   it('updates editability and imperative actions without remounting', async () => {
@@ -777,7 +862,7 @@ describe('RichTextEditor', () => {
         ref={ref}
         label="Notes"
         defaultValue={markdownToEditorStateJSON('# Title')}
-        extensions={[PlainHeadingExtension]}
+        extension={PlainHeadingEditorExtension}
       />,
     );
     expect(ref.current!.getMarkdown()).toBe('Title');
@@ -1094,12 +1179,57 @@ describe('RichTextView', () => {
     );
   });
 
-  it('registers extra nodes via the nodes prop without throwing', async () => {
-    // Passing the default node set again is a no-op but exercises the merge
-    // path; the point is that supplying `nodes` does not break rendering.
-    render(<RichTextView value={HELLO_STATE} nodes={[HeadingNode]} />);
+  it('registers custom nodes through shared extensions in the editor, view, and serializers', async () => {
+    const options = {extension: CustomTextExtension};
+    const value = markdownToEditorStateJSON('Custom content', options);
+    expect(JSON.parse(value).root.children[0].children[0].type).toBe(
+      'custom-text',
+    );
+    const ref = createRef<RichTextEditorRef>();
+    render(
+      <>
+        <RichTextEditor
+          ref={ref}
+          label="Notes"
+          defaultValue={value}
+          extension={CustomTextEditorExtension}
+        />
+        <RichTextView value={value} extension={CustomTextExtension} />
+      </>,
+    );
     await waitFor(() =>
-      expect(screen.getByText('Hello world')).toBeInTheDocument(),
+      expect(screen.getAllByText('Custom content')).toHaveLength(2),
+    );
+    expect(ref.current!.getMarkdown()).toBe('Custom content');
+    expect(editorStateJSONToMarkdown(value, options)).toBe('Custom content');
+  });
+
+  it('recovers when a replacement content extension registers the missing node', async () => {
+    const value = markdownToEditorStateJSON('Custom content', {
+      extension: CustomTextExtension,
+    });
+    const onParseError = vi.fn();
+    const {rerender} = render(
+      <RichTextView
+        value={value}
+        onParseError={onParseError}
+        errorFallback="Unavailable"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Unavailable')).toBeInTheDocument(),
+    );
+    expect(onParseError).toHaveBeenCalled();
+    rerender(
+      <RichTextView
+        value={value}
+        extension={CustomTextExtension}
+        onParseError={onParseError}
+        errorFallback="Unavailable"
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByText('Custom content')).toBeInTheDocument(),
     );
   });
 
@@ -1233,7 +1363,7 @@ describe('markdown serializers', () => {
   });
 
   it('uses the same extension rules for standalone import and export', () => {
-    const options = {extensions: [PlainHeadingExtension]};
+    const options = {extension: PlainHeadingExtension};
     const json = markdownToEditorStateJSON('# Title', options);
     expect(JSON.parse(json).root.children[0].type).toBe('paragraph');
     expect(
@@ -1782,10 +1912,7 @@ describe('RichTextEditorToolbar — links', () => {
 describe('RichTextEditorAutoLinkExtension', () => {
   it('renders without crashing inside the editor', () => {
     render(
-      <RichTextEditor
-        label="Notes"
-        extensions={[RichTextEditorAutoLinkExtension]}
-      />,
+      <RichTextEditor label="Notes" extension={AutoLinkEditorExtension} />,
     );
     expect(screen.getByRole('textbox')).toBeInTheDocument();
   });
@@ -1808,7 +1935,7 @@ describe('RichTextEditorAutoLinkExtension', () => {
     render(
       <RichTextEditor
         label="Notes"
-        extensions={[RichTextEditorAutoLinkExtension]}
+        extension={AutoLinkEditorExtension}
         plugins={<CaptureEditor onReady={e => (editor = e)} />}
       />,
     );

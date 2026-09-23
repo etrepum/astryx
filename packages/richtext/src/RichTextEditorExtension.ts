@@ -5,7 +5,7 @@
  * @input Uses Lexical behavior extensions and reactive callback configuration.
  * @output The editor's editing, history, Markdown shortcuts, change reporting,
  *   character counting, and Escape-then-Tab focus behavior.
- * @position Internal behavior composed by RichTextEditor; React only supplies
+ * @position Public base extension for custom editor roots; React only supplies
  *   the editable surface, UI, imperative ref, and current prop values.
  */
 

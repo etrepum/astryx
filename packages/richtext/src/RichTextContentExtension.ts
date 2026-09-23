@@ -4,7 +4,7 @@
  * @file RichTextContentExtension.ts
  * @input Uses Lexical's CommonMark, GFM, code, and rich-text extensions.
  * @output Shared content schema and Markdown import/export configuration.
- * @position Used by the editor, read-only view, and DOM-free serializers.
+ * @position Public base for content roots shared by the editor, view, and serializers.
  */
 
 import {CodeExtension} from '@lexical/code-core';

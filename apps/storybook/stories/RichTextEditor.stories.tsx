@@ -9,6 +9,7 @@ import {
   editorStateJSONToMarkdown,
   RichTextEditorToolbar,
   RichTextEditorAutoLinkExtension,
+  RichTextEditorExtension,
   type RichTextEditorRef,
 } from '@astryxdesign/richtext';
 import type {EditorState} from 'lexical';
@@ -136,13 +137,18 @@ export const WithLinks: Story = {
   },
 };
 
+const AutoLinkEditorExtension = defineExtension({
+  name: 'storybook/AutoLinkEditor',
+  dependencies: [RichTextEditorExtension, RichTextEditorAutoLinkExtension],
+});
+
 export const WithAutoLink: Story = {
   args: {
     label: 'Notes',
     placeholder: 'Type a URL like https://astryx.dev and it auto-links…',
     toolbar: <RichTextEditorToolbar />,
     // Auto-linkify typed/pasted URLs + emails (open in a new tab).
-    extensions: [RichTextEditorAutoLinkExtension],
+    extension: AutoLinkEditorExtension,
   },
 };
 
@@ -175,6 +181,7 @@ export const WithCharacterLimit: Story = {
 const AsteriskBulletsExtension = defineExtension({
   name: 'storybook/AsteriskBullets',
   dependencies: [
+    AutoLinkEditorExtension,
     configExtension(MdastImportExtension, {
       toMarkdownExtensions: [{bullet: '*'}],
     }),
@@ -187,7 +194,7 @@ export const CustomExtensions: Story = {
     description:
       'Content behavior and Markdown serialization are configured through Lexical extensions.',
     placeholder: 'Try headings, lists, inline formatting, or code…',
-    extensions: [AsteriskBulletsExtension, RichTextEditorAutoLinkExtension],
+    extension: AsteriskBulletsExtension,
   },
 };
 

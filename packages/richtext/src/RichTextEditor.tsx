@@ -5,7 +5,7 @@
 /**
  * @file RichTextEditor.tsx
  * @input Uses React, useId, Lexical (lexical + @lexical/react, composed through
- *   LexicalExtensionComposer and behavior extensions), @lexical/mdast, Field,
+ *   LexicalExtensionComposer and one root extension), @lexical/mdast, Field,
  *   VisuallyHidden, useInputStatusIcon, mergeProps, design tokens
  * @output Exports an accessibly labelled RichTextEditor component with a flush
  *   top toolbar slot and configurable editable-surface minimum height, RichTextEditorProps,
@@ -74,11 +74,8 @@ import {
   configExtension,
   defineExtension,
   type AnyLexicalExtension,
-  type AnyLexicalExtensionArgument,
   type EditorState,
-  type Klass,
   type LexicalEditor,
-  type LexicalNode,
   type EditorThemeClasses,
 } from 'lexical';
 
@@ -326,12 +323,6 @@ export interface RichTextEditorProps extends Omit<
    */
   size?: RichTextEditorSize;
   /**
-   * Additional Lexical nodes beyond the built-in CommonMark/GFM schema.
-   * Use this extension point to plug in
-   * custom nodes (e.g. mentions, images) without forking the editor.
-   */
-  nodes?: ReadonlyArray<Klass<LexicalNode>>;
-  /**
    * Toolbar content rendered edge-to-edge at the top of the field, before the
    * padded editing surface. Pass `<RichTextEditorToolbar />` here so the
    * toolbar stays inside the Lexical composer while retaining correct visual
@@ -344,12 +335,12 @@ export interface RichTextEditorProps extends Omit<
    */
   plugins?: ReactNode;
   /**
-   * Additional Lexical extensions, including custom nodes, behavior, and mdast
-   * import/export rules. Read once on mount; use extension output signals for
-   * runtime configuration, or remount with a new key to change the graph.
-   * Pass the same content extensions to the serializers and RichTextView.
+   * Module-level root extension depending on RichTextEditorExtension.
+   * Compose custom nodes and behavior in its dependencies. Changing its identity
+   * creates a new editor; use output signals for runtime configuration.
+   * @default RichTextEditorExtension
    */
-  extensions?: ReadonlyArray<AnyLexicalExtensionArgument>;
+  extension?: AnyLexicalExtension;
   /**
    * Whether to enable mdast shortcut typing (e.g. `# ` for a heading,
    * `- ` for a list). Import and export remain available when disabled.
@@ -388,7 +379,7 @@ export interface RichTextEditorProps extends Omit<
  * `@lexical/*` are optional peer dependencies — install them to use this
  * component.
  *
- * Pass `toolbar` and `extensions` to add formatting controls, mentions, and
+ * Pass `toolbar` and `extension` to add formatting controls, mentions, and
  * other behavior without forking.
  *
  * The forwarded `RichTextEditorRef` exposes imperative `focus()` and `clear()`
@@ -427,11 +418,10 @@ export const RichTextEditor = forwardRef<
     minHeight = '4.5rem',
     labelTooltip,
     size: sizeProp,
-    nodes,
     toolbar,
     plugins,
     hasMarkdownShortcuts = true,
-    extensions,
+    extension = RichTextEditorExtension,
     hasAutoFocus = false,
     tabEscapeHint = DEFAULT_TAB_ESCAPE_HINT,
     maxLength,
@@ -463,41 +453,40 @@ export const RichTextEditor = forwardRef<
 
   const editable = !isReadOnly && !isDisabled;
 
-  // The extension replaces LexicalComposer's `initialConfig`: it carries the
-  // same editor configuration (namespace, theme, nodes, editability, initial
-  // state) in the shape LexicalBuilder consumes.
-  //
-  // LexicalExtensionComposer re-creates the editor whenever the extension's
-  // identity changes, whereas LexicalComposer read `initialConfig` exactly once
-  // on mount. Build it on first render and keep it, so the editor's lifetime —
-  // and the content it holds — is unaffected by later renders (a consumer
-  // passing an inline `nodes={[...]}` array would otherwise blow away the
-  // editor's content on every render).
-  const extensionRef = useRef<AnyLexicalExtension | null>(null);
-  if (extensionRef.current === null) {
-    extensionRef.current = defineExtension({
-      name: '@astryxdesign/richtext/RichTextEditor',
-      namespace,
-      theme: themeRef.current,
-      editable,
-      dependencies: [
-        RichTextEditorExtension,
-        configExtension(MdastShortcutsExtension, {
-          disabled: !hasMarkdownShortcuts,
-        }),
-        ...(extensions ?? []),
-      ],
-      nodes: nodes ? [...nodes] : [],
-      // `undefined` (not `null`) leaves Lexical's default initializer in place,
-      // which seeds the empty document with one paragraph — what
-      // LexicalComposer did when no `editorState` was given. `null` would mean
-      // "start from a genuinely empty root".
-      $initialEditorState: defaultValue ?? undefined,
-      onError(error: Error) {
-        // Surface errors to the host app rather than swallowing them.
-        throw error;
-      },
-    });
+  // Preserve the editor across ordinary prop updates. The module-level root
+  // extension is its identity: changing it deliberately creates a new editor.
+  const extensionRef = useRef<{
+    source: AnyLexicalExtension;
+    resolved: AnyLexicalExtension;
+  } | null>(null);
+  if (
+    extensionRef.current === null ||
+    extensionRef.current.source !== extension
+  ) {
+    extensionRef.current = {
+      source: extension,
+      resolved: defineExtension({
+        name: '@astryxdesign/richtext/RichTextEditor',
+        namespace,
+        theme: themeRef.current,
+        editable,
+        dependencies: [
+          extension,
+          configExtension(MdastShortcutsExtension, {
+            disabled: !hasMarkdownShortcuts,
+          }),
+        ],
+        // `undefined` (not `null`) leaves Lexical's default initializer in place,
+        // which seeds the empty document with one paragraph — what
+        // LexicalComposer did when no `editorState` was given. `null` would mean
+        // "start from a genuinely empty root".
+        $initialEditorState: defaultValue ?? undefined,
+        onError(error: Error) {
+          // Surface errors to the host app rather than swallowing them.
+          throw error;
+        },
+      }),
+    };
   }
 
   const hasTabEscapeHint = editable && tabEscapeHint !== '';
@@ -569,7 +558,7 @@ export const RichTextEditor = forwardRef<
           style,
         )}>
         <LexicalExtensionComposer
-          extension={extensionRef.current}
+          extension={extensionRef.current.resolved}
           contentEditable={null}>
           {hasToolbar ? toolbar : null}
           <div

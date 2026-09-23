@@ -86,12 +86,6 @@ export const docs = {
       default: "'md'",
     },
     {
-      name: 'nodes',
-      type: 'ReadonlyArray<Klass<LexicalNode>>',
-      description:
-        'Additional Lexical nodes beyond the built-in CommonMark/GFM schema. Extension point for custom nodes (mentions, images) without forking.',
-    },
-    {
       name: 'toolbar',
       type: 'ReactNode',
       description:
@@ -111,10 +105,10 @@ export const docs = {
       default: 'true',
     },
     {
-      name: 'extensions',
-      type: 'ReadonlyArray<AnyLexicalExtensionArgument>',
+      name: 'extension',
+      type: 'AnyLexicalExtension',
       description:
-        'Additional Lexical extensions for custom nodes, behavior, and mdast import/export rules. Read once on mount; use extension output signals for runtime configuration or a new React key to replace the graph. Pass the same content extensions to RichTextView and the serializer helpers.',
+        'Module-level root extension depending on RichTextEditorExtension. Compose custom nodes, behavior, and Markdown rules through its dependencies. Defaults to RichTextEditorExtension. A new identity creates a new editor; use extension output signals for runtime configuration.',
     },
     {
       name: 'hasAutoFocus',
@@ -160,7 +154,7 @@ export const docs = {
   },
   usage: {
     description:
-      'A WYSIWYG rich-text editor built on Lexical, styled with Astryx design tokens. Its field container shares TextArea input visuals for the resting border, hover ring, focus-within ring, disabled state, and status colors. Experimental component in @astryxdesign/richtext (canary). lexical and @lexical/* are optional peer dependencies. The editor is deliberately minimal and extensible: pass toolbar and extensions to layer richer behaviour (formatting, mentions, hover cards) on top without forking. Use RichTextView to render serialized content read-only.',
+      'A WYSIWYG rich-text editor built on Lexical, styled with Astryx design tokens. Its field container shares TextArea input visuals for the resting border, hover ring, focus-within ring, disabled state, and status colors. Experimental component in @astryxdesign/richtext (canary). lexical and @lexical/* are optional peer dependencies. The editor is deliberately minimal and extensible: pass toolbar and extension to layer richer behaviour (formatting, mentions, hover cards) on top without forking. Use RichTextView to render serialized content read-only.',
     bestPractices: [
       {
         guidance: true,
@@ -175,7 +169,7 @@ export const docs = {
       {
         guidance: true,
         description:
-          'Provide custom content extensions to the editor, RichTextView, and serializer helpers so nodes and Markdown rules round-trip. The nodes prop remains available for node-only additions.',
+          'Define a shared content root depending on RichTextContentExtension. Include it in your editor root and pass it as extension to RichTextView and the serializer helpers so custom nodes and Markdown rules round-trip.',
       },
       {
         guidance: true,
@@ -185,7 +179,7 @@ export const docs = {
       {
         guidance: true,
         description:
-          'To produce a defaultValue from Markdown without mounting an editor (e.g. on the server), use markdownToEditorStateJSON(markdown). Convert the other way with editorStateJSONToMarkdown(json). Both build and dispose an extension editor without mounting a DOM root, and accept the same extensions/nodes options as the editor. Content extensions used by the helpers must work without a DOM or React tree.',
+          'To produce a defaultValue from Markdown without mounting an editor (e.g. on the server), use markdownToEditorStateJSON(markdown). Convert the other way with editorStateJSONToMarkdown(json). Both build and dispose an extension editor without mounting a DOM root, and accept the extension option for a root depending on RichTextContentExtension. Content extensions used by the helpers must work without a DOM or React tree.',
       },
       {
         guidance: true,
@@ -200,7 +194,7 @@ export const docs = {
       {
         guidance: true,
         description:
-          'Auto-linking: pass extensions={[RichTextEditorAutoLinkExtension]} to turn typed/pasted URLs and emails into links automatically. Created links open in a new tab by default (target=_blank, rel=noopener noreferrer, stored in the node). For custom matchers or change handlers, use configExtension(AutoLinkExtension, {matchers, changeHandlers}) from @lexical/link and lexical.',
+          'Auto-linking: include RichTextEditorAutoLinkExtension in your editor root dependencies to turn typed/pasted URLs and emails into links automatically. Created links open in a new tab by default (target=_blank, rel=noopener noreferrer, stored in the node). For custom matchers or change handlers, use configExtension(AutoLinkExtension, {matchers, changeHandlers}) from @lexical/link and lexical.',
       },
       {
         guidance: true,

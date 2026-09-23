@@ -4,7 +4,7 @@
  * @file RichTextEditorAutoLinkExtension.ts
  * @input Uses Lexical's AutoLinkExtension and the shared URL/email matchers.
  * @output Opt-in auto-link extension, default matchers, and link attributes.
- * @position Public behavior extension for RichTextEditor's extensions prop.
+ * @position Public behavior extension composed into a RichTextEditor root extension.
  *   For custom matching, configure @lexical/link's AutoLinkExtension directly.
  */
 

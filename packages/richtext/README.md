@@ -15,8 +15,9 @@ Tab indentation, toolbar state and shortcuts, read-only value synchronization,
 and CommonMark/GFM Markdown through `@lexical/mdast`. No legacy Lexical React
 feature plugins are mounted.
 `RichTextEditorToolbar` goes in the `toolbar` slot; additional React UI can use
-`plugins`. Configure custom nodes, behavior, and Markdown rules with `extensions`.
-Pass the same content extensions to `RichTextView`, `markdownToEditorStateJSON`,
+`plugins`. Configure custom nodes, behavior, and Markdown rules with a
+module-level root `extension`. Compose a shared content extension into your editor
+root and pass it to `RichTextView`, `markdownToEditorStateJSON`,
 and `editorStateJSONToMarkdown` so persisted content round-trips. The serializers
 build and dispose an editor without mounting a DOM root; their extensions must
 work without a DOM or React tree.
@@ -74,17 +75,24 @@ npm install lexical@0.51.0 @lexical/react@0.51.0 @lexical/extension@0.51.0 \
 
 This canary changes the Markdown customization API:
 
-- Replace `transformers` / `Transformer` with mdast extensions in `extensions`.
-  `MdastImportExtension` accepts import/export rules and parser/serializer
-  extensions; import, export, and typing shortcuts share that configuration.
-- Replace `plugins={<RichTextEditorAutoLinkPlugin />}` with
-  `extensions={[RichTextEditorAutoLinkExtension]}`. For custom matching or link
-  notifications, use `configExtension(AutoLinkExtension, {matchers, changeHandlers})`
-  from `@lexical/link` and `lexical`.
-- The extension graph and `nodes` are read once on mount. Runtime props such as
-  editability, `onChange`, and `hasMarkdownShortcuts` update the existing editor.
-  Use extension output signals for runtime configuration or change the React
-  `key` to replace the graph.
+- Replace `nodes` and the `extensions` array with one `extension` prop. Define
+  that root extension at module scope and depend on `RichTextEditorExtension`.
+  Register custom nodes in an extension's `nodes` field and compose behavior
+  through `dependencies`.
+- Replace `transformers` / `Transformer` with mdast configuration in your root's
+  dependencies. `MdastImportExtension` accepts import/export rules and
+  parser/serializer extensions shared by import, export, and typing shortcuts.
+- Replace `RichTextEditorAutoLinkPlugin` with `RichTextEditorAutoLinkExtension`
+  in the root's dependencies. For custom matchers or notifications, configure
+  `AutoLinkExtension` from `@lexical/link` with `configExtension` from `lexical`.
+- Keep the root extension constant: changing its identity creates a new editor
+  initialized from `defaultValue`. Runtime props such as editability, `onChange`,
+  and `hasMarkdownShortcuts` update the existing editor. Use extension output
+  signals for runtime configuration; no caller memoization is needed.
+- For the view and serializer helpers, define a content root depending on
+  `RichTextContentExtension` and pass it as `extension` (or `{extension}` to the
+  helpers). Include that same content root in the editor root's dependencies.
+  Content roots must work without a DOM or React tree.
 
 `defaultValue` still accepts serialized Lexical JSON. Markdown now follows
 CommonMark and GFM, including reference links, task lists, tables, thematic
@@ -96,12 +104,19 @@ where supported by mdast.
 import {
   RichTextEditor,
   RichTextEditorAutoLinkExtension,
+  RichTextEditorExtension,
   RichTextEditorToolbar,
 } from '@astryxdesign/richtext';
+import {defineExtension} from 'lexical';
+
+const NotesEditorExtension = defineExtension({
+  name: 'app/NotesEditor',
+  dependencies: [RichTextEditorExtension, RichTextEditorAutoLinkExtension],
+});
 
 <RichTextEditor
   label="Notes"
-  extensions={[RichTextEditorAutoLinkExtension]}
+  extension={NotesEditorExtension}
   toolbar={<RichTextEditorToolbar />}
 />;
 ```
