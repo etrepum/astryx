@@ -121,6 +121,14 @@ const NotesEditorExtension = defineExtension({
 />;
 ```
 
+### Keyboard shortcuts
+
+The toolbar's Cmd/Ctrl+K binding is named `astryx.insertLink` in
+`KeyboardShortcutsExtension`. In your root's dependencies, configure that name
+as `null` to disable the binding, or supply a new key/modifier mapping with
+`OPEN_LINK_EDITOR_COMMAND` to remap it. The command opens the current toolbar's
+link UI only when the link action is available and the editor is editable.
+
 ## Why no stable release?
 
 `package.json` keeps `"private": true` plus an `"astryx": { "canaryOnly": true }`

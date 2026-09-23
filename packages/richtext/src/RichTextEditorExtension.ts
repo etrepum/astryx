@@ -124,6 +124,8 @@ export const RichTextEditorExtension = defineExtension({
         },
         COMMAND_PRIORITY_HIGH,
       ),
+      // This observes arbitrary keys to reset the Escape-then-Tab sequence;
+      // it is not a key binding that KeyboardShortcutsExtension can express.
       editor.registerCommand(
         KEY_DOWN_COMMAND,
         event => {

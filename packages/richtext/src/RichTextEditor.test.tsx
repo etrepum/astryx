@@ -24,6 +24,7 @@ import {
   $isListItemNode,
 } from '@lexical/list';
 import {
+  CONTROL_OR_META,
   TextNode,
   type SerializedTextNode,
   $getRoot,
@@ -44,6 +45,8 @@ import {RichTextEditor, type RichTextEditorRef} from './RichTextEditor';
 import {RichTextView} from './RichTextView';
 import {RichTextEditorExtension} from './RichTextEditorExtension';
 import {RichTextContentExtension} from './RichTextContentExtension';
+import {OPEN_LINK_EDITOR_COMMAND} from './RichTextToolbarExtension';
+import {KeyboardShortcutsExtension} from '@lexical/extension';
 import {
   markdownToEditorStateJSON,
   editorStateJSONToMarkdown,
@@ -90,6 +93,31 @@ const PlainHeadingEditorExtension = defineExtension({
 const AutoLinkEditorExtension = defineExtension({
   name: 'test/AutoLinkEditor',
   dependencies: [RichTextEditorExtension, RichTextEditorAutoLinkExtension],
+});
+
+const RemappedLinkEditorExtension = defineExtension({
+  name: 'test/RemappedLinkEditor',
+  dependencies: [
+    RichTextEditorExtension,
+    configExtension(KeyboardShortcutsExtension, {
+      shortcuts: {
+        'astryx.insertLink': {
+          key: 'j',
+          modifiers: CONTROL_OR_META,
+          command: OPEN_LINK_EDITOR_COMMAND,
+        },
+      },
+    }),
+  ],
+});
+const DisabledLinkShortcutExtension = defineExtension({
+  name: 'test/DisabledLinkShortcut',
+  dependencies: [
+    RichTextEditorExtension,
+    configExtension(KeyboardShortcutsExtension, {
+      shortcuts: {'astryx.insertLink': null},
+    }),
+  ],
 });
 
 class CustomTextNode extends TextNode {
@@ -1709,6 +1737,38 @@ describe('RichTextEditorToolbar — links', () => {
     fireEvent.keyDown(textbox, {key: 'k', metaKey: true, shiftKey: true});
     fireEvent.keyDown(textbox, {key: 'k', ctrlKey: true, shiftKey: true});
     expect(promptForUrl).not.toHaveBeenCalled();
+  });
+
+  it('allows the root extension to remap or disable the link shortcut', () => {
+    const promptForUrl = vi.fn(() => null);
+    const {rerender} = render(
+      <RichTextEditor
+        label="Notes"
+        extension={RemappedLinkEditorExtension}
+        toolbar={<RichTextEditorToolbar promptForUrl={promptForUrl} />}
+      />,
+    );
+    const press = (key: string) => {
+      const textbox = screen.getByRole('textbox');
+      fireEvent.keyDown(textbox, {key, metaKey: true});
+      fireEvent.keyDown(textbox, {key, ctrlKey: true});
+    };
+    press('k');
+    expect(promptForUrl).not.toHaveBeenCalled();
+    press('j');
+    expect(promptForUrl).toHaveBeenCalledTimes(1);
+    rerender(
+      <RichTextEditor
+        label="Notes"
+        extension={DisabledLinkShortcutExtension}
+        toolbar={<RichTextEditorToolbar promptForUrl={promptForUrl} />}
+      />,
+    );
+    press('k');
+    press('j');
+    expect(promptForUrl).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', {name: 'Link'}));
+    expect(promptForUrl).toHaveBeenCalledTimes(2);
   });
 
   it('cleans up the link shortcut when the toolbar changes or unmounts', () => {

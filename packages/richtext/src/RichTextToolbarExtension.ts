@@ -2,12 +2,16 @@
 
 /**
  * @file RichTextToolbarExtension.ts
- * @input Uses Lexical selection/history commands and editable-state signals.
+ * @input Uses KeyboardShortcutsExtension, selection/history commands, and editable-state signals.
  * @output Reactive toolbar state and the optional insert-link shortcut.
  * @position Internal behavior for RichTextEditorToolbar; React renders the UI.
  */
 
-import {namedSignals, WatchEditableExtension} from '@lexical/extension';
+import {
+  KeyboardShortcutsExtension,
+  namedSignals,
+  WatchEditableExtension,
+} from '@lexical/extension';
 import {HistoryExtension} from '@lexical/history';
 import {$isLinkNode} from '@lexical/link';
 import {$isListNode, ListNode} from '@lexical/list';
@@ -21,9 +25,9 @@ import {
   COMMAND_PRIORITY_CRITICAL,
   COMMAND_PRIORITY_NORMAL,
   defineExtension,
-  IS_APPLE,
-  isExactShortcutMatch,
-  KEY_DOWN_COMMAND,
+  CONTROL_OR_META,
+  configExtension,
+  createCommand,
   mergeRegister,
   safeCast,
   SELECTION_CHANGE_COMMAND,
@@ -39,9 +43,26 @@ export interface LinkContext {
   isLink: boolean;
 }
 
+/** Opens the mounted toolbar's link UI; unhandled when unavailable or read-only. */
+export const OPEN_LINK_EDITOR_COMMAND = createCommand<KeyboardEvent>(
+  'OPEN_LINK_EDITOR_COMMAND',
+);
+
 export const RichTextToolbarExtension = defineExtension({
   name: '@astryxdesign/richtext/Toolbar',
-  dependencies: [HistoryExtension, WatchEditableExtension],
+  dependencies: [
+    HistoryExtension,
+    WatchEditableExtension,
+    configExtension(KeyboardShortcutsExtension, {
+      shortcuts: {
+        'astryx.insertLink': {
+          key: 'k',
+          modifiers: CONTROL_OR_META,
+          command: OPEN_LINK_EDITOR_COMMAND,
+        },
+      },
+    }),
+  ],
   build(_editor, _config, state) {
     return {
       ...namedSignals({
@@ -157,17 +178,10 @@ export const RichTextToolbarExtension = defineExtension({
         COMMAND_PRIORITY_CRITICAL,
       ),
       editor.registerCommand(
-        KEY_DOWN_COMMAND,
+        OPEN_LINK_EDITOR_COMMAND,
         event => {
           const onInsertLink = output.onInsertLink.peek();
-          if (
-            onInsertLink &&
-            editor.isEditable() &&
-            isExactShortcutMatch(event, 'k', {
-              ctrlKey: !IS_APPLE,
-              metaKey: IS_APPLE,
-            })
-          ) {
+          if (onInsertLink && editor.isEditable()) {
             event.preventDefault();
             onInsertLink();
             return true;

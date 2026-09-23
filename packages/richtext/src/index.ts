@@ -17,6 +17,7 @@
 export {RichTextEditor} from './RichTextEditor';
 export {RichTextEditorExtension} from './RichTextEditorExtension';
 export {RichTextContentExtension} from './RichTextContentExtension';
+export {OPEN_LINK_EDITOR_COMMAND} from './RichTextToolbarExtension';
 export type {
   RichTextEditorProps,
   RichTextEditorRef,
